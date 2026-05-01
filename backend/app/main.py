@@ -44,10 +44,12 @@ app.add_middleware(
 from app.api.analytics import router as analytics_router
 from app.api.settings import router as settings_router
 from app.api.sync import router as sync_router
+from app.api.margin import router as margin_router
 
 app.include_router(analytics_router)
 app.include_router(settings_router)
 app.include_router(sync_router)
+app.include_router(margin_router)
 
 
 @app.get("/health")
