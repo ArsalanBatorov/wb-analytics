@@ -84,3 +84,85 @@ export const fetchProductDailyStats = (nmId: number, p: Period) =>
 
 export const fetchProductDrawer = (nmId: number, p: Period) =>
   api.get(`/analytics/product-drawer/${nmId}?date_from=${p.date_from}&date_to=${p.date_to}`).then(r => r.data);
+
+// ============================================================
+// === Margin endpoints (FACT cash-method, /api/margin/*) =====
+// ============================================================
+// Источник: realization_daily_stats (тот же, что финотчёт WB)
+// margin = net_payout − COGS − ad_spend (комиссия и эквайринг
+// уже учтены в ppvz_for_pay)
+
+export interface MarginSummary {
+  date_from: string;
+  date_to: string;
+  days: number;
+  sales_count: number;
+  returns_count: number;
+  net_qty: number;
+  sales_revenue: number;
+  returns_revenue: number;
+  to_pay: number;
+  logistics: number;
+  storage: number;
+  deduction: number;
+  penalty: number;
+  acceptance: number;
+  commission: number;
+  acquiring: number;
+  cogs: number;
+  ad_spend: number;
+  net_payout: number;
+  margin: number;
+  margin_pct: number;
+}
+
+export interface MarginDailyRow {
+  date: string;
+  sales_count: number;
+  returns_count: number;
+  sales_revenue: number;
+  logistics: number;
+  storage: number;
+  deduction: number;
+  cogs: number;
+  ad_spend: number;
+  net_payout: number;
+  margin: number;
+  margin_pct: number;
+}
+
+export interface MarginProductRow {
+  nm_id: number;
+  sales_count: number;
+  returns_count: number;
+  net_qty: number;
+  sales_revenue: number;
+  returns_revenue: number;
+  logistics: number;
+  storage: number;
+  acceptance: number;
+  deduction: number;
+  penalty: number;
+  commission: number;
+  acquiring: number;
+  cogs: number;
+  ad_spend: number;
+  net_payout: number;
+  margin: number;
+  margin_pct: number;
+}
+
+export const fetchMarginSummary = (p: Period) =>
+  api.get<{ summary: MarginSummary }>(
+    `/margin/summary?date_from=${p.date_from}&date_to=${p.date_to}`
+  ).then(r => r.data.summary);
+
+export const fetchMarginDaily = (p: Period) =>
+  api.get<{ rows: MarginDailyRow[] }>(
+    `/margin/daily?date_from=${p.date_from}&date_to=${p.date_to}`
+  ).then(r => r.data.rows);
+
+export const fetchMarginProducts = (p: Period) =>
+  api.get<{ products: MarginProductRow[] }>(
+    `/margin/products?date_from=${p.date_from}&date_to=${p.date_to}`
+  ).then(r => r.data.products);

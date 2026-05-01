@@ -1,0 +1,300 @@
+/**
+ * Страница "Маржа" — фактическая маржа кассовым методом.
+ *
+ * Состав:
+ *   1. Селектор периода: пресеты (7/14/30 дней, текущий месяц) + кастом.
+ *   2. 6 KPI-карточек: выручка, маржа ₽, маржа %, COGS, логистика, реклама.
+ *   3. График: маржа по дням (зелёный/красный bar).
+ *   4. Таблица SKU: nm_id, продажи, выручка, маржа, маржа % (худшие сверху).
+ *
+ * Все числа в рублях. % — float с одной цифрой после запятой.
+ * Источник данных: GET /api/margin/{summary,daily,products}.
+ */
+import { useEffect, useState, useMemo } from "react";
+import {
+  Card, Row, Col, DatePicker, Radio, Table, Tag, Spin, Statistic, Typography, Space,
+} from "antd";
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
+} from "recharts";
+import dayjs, { Dayjs } from "dayjs";
+import {
+  fetchMarginSummary, fetchMarginDaily, fetchMarginProducts,
+  type MarginSummary, type MarginDailyRow, type MarginProductRow,
+} from "../api/client";
+
+const { RangePicker } = DatePicker;
+const { Title } = Typography;
+
+// --- утилиты форматирования ---
+const fmt   = (n: number) => (n ?? 0).toLocaleString("ru-RU", { maximumFractionDigits: 0 });
+const fmtR  = (n: number) => fmt(Math.round(n ?? 0)) + " ₽";
+const fmtP  = (n: number) => (n ?? 0).toFixed(1) + "%";
+
+// --- пресеты периода ---
+type PresetKey = "7" | "14" | "30" | "month" | "custom";
+
+function presetToRange(key: PresetKey): [Dayjs, Dayjs] {
+  const today = dayjs();
+  switch (key) {
+    case "7":     return [today.subtract(6, "day"), today];
+    case "14":    return [today.subtract(13, "day"), today];
+    case "30":    return [today.subtract(29, "day"), today];
+    case "month": return [today.startOf("month"), today];
+    default:      return [today.subtract(6, "day"), today];
+  }
+}
+
+export default function MarginPage() {
+  // период: храним как [Dayjs, Dayjs], отдельно — какой пресет выбран
+  const [preset, setPreset] = useState<PresetKey>("30");
+  const [range, setRange]   = useState<[Dayjs, Dayjs]>(() => presetToRange("30"));
+
+  // данные с бэкенда
+  const [summary, setSummary]   = useState<MarginSummary | null>(null);
+  const [daily, setDaily]       = useState<MarginDailyRow[]>([]);
+  const [products, setProducts] = useState<MarginProductRow[]>([]);
+  const [loading, setLoading]   = useState(false);
+
+  // период в формате API
+  const period = useMemo(() => ({
+    date_from: range[0].format("YYYY-MM-DD"),
+    date_to:   range[1].format("YYYY-MM-DD"),
+  }), [range]);
+
+  // загрузка данных при изменении периода
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      fetchMarginSummary(period),
+      fetchMarginDaily(period),
+      fetchMarginProducts(period),
+    ]).then(([s, d, p]) => {
+      if (cancelled) return;
+      setSummary(s);
+      setDaily(d);
+      setProducts(p);
+    }).catch(err => {
+      console.error("Ошибка загрузки маржи:", err);
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [period.date_from, period.date_to]);
+
+  // обработчик пресета
+  const onPreset = (key: PresetKey) => {
+    setPreset(key);
+    if (key !== "custom") setRange(presetToRange(key));
+  };
+
+  // обработчик кастомного RangePicker
+  const onRangeChange = (val: any) => {
+    if (val && val[0] && val[1]) {
+      setRange([val[0], val[1]]);
+      setPreset("custom");
+    }
+  };
+
+  // данные графика — ровно те поля, что нужны Recharts
+  const chartData = daily.map(r => ({
+    date: r.date.slice(5),  // MM-DD для оси X
+    margin: r.margin,
+    revenue: r.sales_revenue,
+  }));
+
+  // таблица SKU
+  const columns = [
+    {
+      title: "SKU", dataIndex: "nm_id", key: "nm_id",
+      render: (v: number) => v === 0
+        ? <Tag color="default">Общие удержания WB</Tag>
+        : <a href={`https://www.wildberries.ru/catalog/${v}/detail.aspx`} target="_blank" rel="noreferrer">{v}</a>,
+      width: 200,
+    },
+    {
+      title: "Продажи", dataIndex: "sales_count", key: "sales_count",
+      sorter: (a: any, b: any) => a.sales_count - b.sales_count,
+      align: "right" as const, width: 90,
+    },
+    {
+      title: "Возвраты", dataIndex: "returns_count", key: "returns_count",
+      align: "right" as const, width: 90,
+    },
+    {
+      title: "Выручка", dataIndex: "sales_revenue", key: "sales_revenue",
+      render: fmtR, align: "right" as const, width: 130,
+      sorter: (a: any, b: any) => a.sales_revenue - b.sales_revenue,
+    },
+    {
+      title: "COGS", dataIndex: "cogs", key: "cogs",
+      render: fmtR, align: "right" as const, width: 110,
+    },
+    {
+      title: "Логистика", dataIndex: "logistics", key: "logistics",
+      render: fmtR, align: "right" as const, width: 110,
+    },
+    {
+      title: "Реклама", dataIndex: "ad_spend", key: "ad_spend",
+      render: fmtR, align: "right" as const, width: 110,
+    },
+    {
+      title: "Маржа ₽", dataIndex: "margin", key: "margin",
+      render: (v: number) => (
+        <span style={{ color: v >= 0 ? "#3f8600" : "#cf1322", fontWeight: 600 }}>
+          {fmtR(v)}
+        </span>
+      ),
+      align: "right" as const, width: 130,
+      sorter: (a: any, b: any) => a.margin - b.margin,
+      defaultSortOrder: "ascend" as const,
+    },
+    {
+      title: "Маржа %", dataIndex: "margin_pct", key: "margin_pct",
+      render: (v: number) => {
+        const color = v >= 10 ? "green" : v >= 0 ? "gold" : "red";
+        return <Tag color={color}>{fmtP(v)}</Tag>;
+      },
+      align: "right" as const, width: 110,
+      sorter: (a: any, b: any) => a.margin_pct - b.margin_pct,
+    },
+  ];
+
+  return (
+    <div style={{ padding: 24 }}>
+      <Title level={3} style={{ marginBottom: 16 }}>Маржа (факт)</Title>
+
+      {/* === Селектор периода === */}
+      <Card style={{ marginBottom: 16 }} bodyStyle={{ padding: 12 }}>
+        <Space wrap>
+          <Radio.Group value={preset} onChange={e => onPreset(e.target.value)}>
+            <Radio.Button value="7">7 дней</Radio.Button>
+            <Radio.Button value="14">14 дней</Radio.Button>
+            <Radio.Button value="30">30 дней</Radio.Button>
+            <Radio.Button value="month">Тек. месяц</Radio.Button>
+            <Radio.Button value="custom">Свой</Radio.Button>
+          </Radio.Group>
+          <RangePicker
+            value={range}
+            onChange={onRangeChange}
+            format="DD.MM.YYYY"
+            allowClear={false}
+          />
+          <span style={{ color: "#888" }}>
+            {summary?.days ? `${summary.days} дн.` : ""}
+          </span>
+        </Space>
+      </Card>
+
+      <Spin spinning={loading}>
+        {/* === KPI карточки === */}
+        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+          <Col xs={24} sm={12} md={8} lg={4}>
+            <Card>
+              <Statistic title="Выручка" value={summary?.sales_revenue ?? 0} suffix="₽"
+                formatter={(v) => fmt(Number(v))} />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={8} lg={4}>
+            <Card>
+              <Statistic title="Маржа"
+                value={summary?.margin ?? 0} suffix="₽"
+                valueStyle={{ color: (summary?.margin ?? 0) >= 0 ? "#3f8600" : "#cf1322" }}
+                formatter={(v) => fmt(Number(v))} />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={8} lg={4}>
+            <Card>
+              <Statistic title="Маржа %"
+                value={summary?.margin_pct ?? 0} suffix="%" precision={1}
+                valueStyle={{ color: (summary?.margin_pct ?? 0) >= 0 ? "#3f8600" : "#cf1322" }} />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={8} lg={4}>
+            <Card>
+              <Statistic title="COGS" value={summary?.cogs ?? 0} suffix="₽"
+                formatter={(v) => fmt(Number(v))} />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={8} lg={4}>
+            <Card>
+              <Statistic title="Логистика" value={summary?.logistics ?? 0} suffix="₽"
+                formatter={(v) => fmt(Number(v))} />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={8} lg={4}>
+            <Card>
+              <Statistic title="Реклама" value={summary?.ad_spend ?? 0} suffix="₽"
+                formatter={(v) => fmt(Number(v))} />
+            </Card>
+          </Col>
+        </Row>
+
+        {/* === Доп. строка с детализацией удержаний === */}
+        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+          <Col xs={12} md={6}>
+            <Card size="small">
+              <Statistic title="К перечислению" value={summary?.to_pay ?? 0} suffix="₽"
+                formatter={(v) => fmt(Number(v))} />
+            </Card>
+          </Col>
+          <Col xs={12} md={6}>
+            <Card size="small">
+              <Statistic title="Хранение" value={summary?.storage ?? 0} suffix="₽"
+                formatter={(v) => fmt(Number(v))} />
+            </Card>
+          </Col>
+          <Col xs={12} md={6}>
+            <Card size="small">
+              <Statistic title="Корр. ВВ" value={summary?.deduction ?? 0} suffix="₽"
+                formatter={(v) => fmt(Number(v))} />
+            </Card>
+          </Col>
+          <Col xs={12} md={6}>
+            <Card size="small">
+              <Statistic title="Возвраты" value={summary?.returns_count ?? 0} suffix="шт" />
+            </Card>
+          </Col>
+        </Row>
+
+        {/* === График маржи по дням === */}
+        <Card title="Маржа по дням" style={{ marginBottom: 16 }}>
+          {chartData.length === 0 ? (
+            <div style={{ textAlign: "center", color: "#999", padding: 40 }}>
+              Нет данных за выбранный период
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis tickFormatter={(v) => fmt(v)} />
+                <Tooltip formatter={(v: number) => fmtR(v)} />
+                <ReferenceLine y={0} stroke="#000" />
+                <Bar dataKey="margin" name="Маржа ₽">
+                  {chartData.map((entry, i) => (
+                    <Bar key={i} dataKey="margin"
+                      fill={entry.margin >= 0 ? "#52c41a" : "#ff4d4f"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
+
+        {/* === Таблица SKU === */}
+        <Card title={`Маржа по SKU (${products.length})`}>
+          <Table
+            rowKey="nm_id"
+            columns={columns}
+            dataSource={products}
+            size="small"
+            pagination={{ pageSize: 25, showSizeChanger: true }}
+            scroll={{ x: 1200 }}
+          />
+        </Card>
+      </Spin>
+    </div>
+  );
+}
