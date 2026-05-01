@@ -4,10 +4,10 @@
 ## 1. ИНФРАСТРУКТУРА
 
 ### Сервер
-- Путь: /root/wb-bidder/
-- Venv: /root/wb-bidder/venv/
-- Backend рабочая директория: /root/wb-bidder/backend/
-- Frontend build: /var/www/wb-bidder/
+- Путь: /root/wb-analytics/
+- Venv: /root/wb-analytics/venv/
+- Backend рабочая директория: /root/wb-analytics/backend/
+- Frontend build: /var/www/wb-analytics/
 
 ### Сервисы (systemd)
 - wb-backend: uvicorn app.main:app на 127.0.0.1:8100
@@ -149,7 +149,7 @@ systemctl restart wb-backend wb-celery wb-celery-beat
 - 15.04.2026: initial migration + app_settings
 
 ## 8. БЫСТРЫЕ КОМАНДЫ
-cd /root/wb-bidder/backend && source /root/wb-bidder/venv/bin/activate
+cd /root/wb-analytics/backend && source /root/wb-analytics/venv/bin/activate
 systemctl restart wb-backend wb-celery wb-celery-beat
 journalctl -u wb-backend -f
 journalctl -u wb-celery -f
