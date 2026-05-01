@@ -1,31 +1,30 @@
 /**
  * Корневой компонент. Боковое меню переключает страницы.
  * Используем useState вместо react-router (минимум зависимостей).
+ *
+ * ВАЖНО: страницы Products/Campaigns/ProductDetail/Campaign временно отключены —
+ * в них импорты несуществующих функций из client.ts (pauseCampaign,
+ * updateCampaign и др.), что валит билд. Включим обратно после рефакторинга.
  */
 import { useState } from "react";
 import { Layout, Menu, ConfigProvider } from "antd";
 import {
-  DashboardOutlined, DollarOutlined, ShoppingOutlined,
-  RocketOutlined, SettingOutlined,
+  DashboardOutlined, DollarOutlined, SettingOutlined,
 } from "@ant-design/icons";
 import ruRU from "antd/locale/ru_RU";
 
 import Dashboard from "./pages/Dashboard";
 import Margin from "./pages/Margin";
-import Products from "./pages/Products";
-import Campaigns from "./pages/Campaigns";
 import Settings from "./pages/Settings";
 
 const { Sider, Content } = Layout;
 
-type PageKey = "dashboard" | "margin" | "products" | "campaigns" | "settings";
+type PageKey = "margin" | "dashboard" | "settings";
 
 const PAGES: Record<PageKey, { label: string; icon: any; component: React.FC }> = {
+  margin:    { label: "Маржа",     icon: <DollarOutlined />,    component: Margin },
   dashboard: { label: "Дашборд",   icon: <DashboardOutlined />, component: Dashboard },
-  margin:    { label: "Маржа",      icon: <DollarOutlined />,    component: Margin },
-  products:  { label: "Товары",     icon: <ShoppingOutlined />,  component: Products },
-  campaigns: { label: "Кампании",   icon: <RocketOutlined />,    component: Campaigns },
-  settings:  { label: "Настройки",  icon: <SettingOutlined />,   component: Settings },
+  settings:  { label: "Настройки", icon: <SettingOutlined />,   component: Settings },
 };
 
 export default function App() {
