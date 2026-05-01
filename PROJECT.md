@@ -1,4 +1,4 @@
-# WB-BIDDER — Project Bible
+# WB-ANALYTICS — Project Bible
 > Последнее обновление: 2026-05-01
 
 ## 1. ИНФРАСТРУКТУРА
