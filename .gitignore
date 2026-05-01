@@ -1,9 +1,28 @@
+# Python
 venv/
 __pycache__/
 *.pyc
-.env
-node_modules/
-frontend/dist/
 *.egg-info/
 .mypy_cache/
 .pytest_cache/
+
+# Env
+.env
+.env.local
+
+# Frontend
+node_modules/
+frontend/dist/
+
+# Backend runtime
+backend/celerybeat-schedule
+backend/celerybeat-schedule.db
+backend/*.log
+
+# Local backups
+*.bak
+*.swp
+
+# IDE
+.idea/
+.vscode/
