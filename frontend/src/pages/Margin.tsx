@@ -61,7 +61,7 @@ export default function Margin() {
         // /daily возвращает { rows: [...] } или { items: [...] }
         setDaily(d?.rows ?? d?.items ?? d ?? []);
         // /products возвращает { products: [...] }
-        setProducts(p?.products ?? p?.items ?? []);
+        setProducts(p?.products ?? p?.items ?? (Array.isArray(p) ? p : []));
       })
       .finally(() => setLoading(false));
   }, [dateFrom, dateTo]);
@@ -78,9 +78,9 @@ export default function Margin() {
       title: "Артикул продавца",
       dataIndex: "vendor_code",
       key: "vendor_code",
-      width: 160,
+      width: 200,
       fixed: "left" as const,
-      render: (v: string) => v || "—",
+      render: (v: string, row: any) => row.nm_id === 0 ? <span style={{color:"#888",fontStyle:"italic"}}>Общие удержания WB</span> : (v || "—"),
     },
     {
       title: "nm_id",
@@ -214,7 +214,7 @@ export default function Margin() {
             columns={columns as any}
             dataSource={products}
             size="small"
-            pagination={{ pageSize: 25, showSizeChanger: true }}
+            pagination={{ defaultPageSize: 25, showSizeChanger: true, pageSizeOptions: ['25','50','100','200'] }}
             scroll={{ x: 1400 }}
           />
         </Card>
