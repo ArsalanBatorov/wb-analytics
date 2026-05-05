@@ -144,6 +144,7 @@ async def margin_daily(
 
 
 @router.get("/products")
+@router.get("/products")
 async def margin_products(
     date_from: date | None = Query(default=None, description="Начало периода YYYY-MM-DD"),
     date_to:   date | None = Query(default=None, description="Конец периода YYYY-MM-DD"),
@@ -152,6 +153,10 @@ async def margin_products(
     Маржа по каждому SKU за период (для таблицы товаров).
     Берём calc_margin_for_period (день × nm_id) и схлопываем по nm_id.
     Сортировка: худшие сверху (margin asc).
+
+    ИЗМЕНЕНИЕ: добавлены поля vendor_code и title (артикул продавца и название
+    из таблицы products) — они приходят из calc_margin_for_day и приклеиваются
+    к каждому SKU при первом появлении.
     """
     start, end = _resolve_period(date_from, date_to, default_days=30)
 
@@ -168,6 +173,10 @@ async def margin_products(
         if nm not in acc:
             acc[nm] = {
                 "nm_id":           nm,
+                # Текстовые поля (для отображения в таблице)
+                "vendor_code":     r.get("vendor_code", "") or "",
+                "title":           r.get("title", "") or "",
+                # Числовые поля (аккумулируются)
                 "sales_count":     0,
                 "returns_count":   0,
                 "net_qty":         0,
@@ -186,6 +195,11 @@ async def margin_products(
                 "margin":          0.0,
             }
         a = acc[nm]
+        # Если vendor_code/title пришли позже (на других днях) — обновляем
+        if not a["vendor_code"] and r.get("vendor_code"):
+            a["vendor_code"] = r["vendor_code"]
+        if not a["title"] and r.get("title"):
+            a["title"] = r["title"]
         a["sales_count"]     += r.get("sales_count", 0) or 0
         a["returns_count"]   += r.get("returns_count", 0) or 0
         a["net_qty"]         += r.get("net_qty", 0) or 0

@@ -53,13 +53,9 @@ async def update_global_settings(data: GlobalSettings):
             await _upsert_setting(db, "vat_rate", str(data.vat_rate))
         await db.commit()
 
-    # ИТЕРАЦИЯ 1: автопересчёт отключён.
-    # Прошлые дни должны оставаться с теми ИЛ/ИРП, при которых были записаны.
-    # Новые дни (приходящие через ежедневную синхронизацию) автоматически
-    # будут считаться с актуальными настройками. Ручной пересчёт можно
-    # запустить, раскомментировав строку ниже.
-    # await _recalculate_all_metrics()
-    return {"status": "ok", "recalculated": False}
+    # Recalculate all metrics with new settings
+    await _recalculate_all_metrics()
+    return {"status": "ok", "recalculated": True}
 
 
 @router.put("/cost-price")

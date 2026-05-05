@@ -49,11 +49,16 @@ async def calc_margin_for_day(
     Возвращает список словарей с маржой за день — по одному элементу на nm_id.
     Если nm_id указан, фильтрует только по нему.
     Если nm_id=None — все товары + строка nm_id=0 (общие расходы WB).
+
+    ИЗМЕНЕНИЕ: добавлен LEFT JOIN products для получения vendor_code и title,
+    чтобы в таблице SKU на фронте показывались артикул продавца и название.
     """
     sql = """
         SELECT
             rds.stat_date           AS date,
             rds.nm_id,
+            COALESCE(p.vendor_code, '') AS vendor_code,
+            COALESCE(p.title, '')       AS title,
             rds.sales_count,
             rds.sales_revenue,
             rds.returns_count,
@@ -79,6 +84,8 @@ async def calc_margin_for_day(
         LEFT JOIN product_daily_stats pds
                ON pds.nm_id = rds.nm_id
               AND pds.date  = rds.stat_date
+        LEFT JOIN products p
+               ON p.nm_id   = rds.nm_id
         WHERE rds.stat_date = CAST(:target_date AS DATE)
           AND (CAST(:nm_id AS BIGINT) IS NULL OR rds.nm_id = CAST(:nm_id AS BIGINT))
         ORDER BY rds.nm_id
@@ -109,6 +116,9 @@ async def calc_margin_for_day(
         result.append({
             "date":            r["date"],
             "nm_id":           r["nm_id"],
+            # НОВЫЕ поля: артикул продавца и название (для таблицы)
+            "vendor_code":     r["vendor_code"] or "",
+            "title":           r["title"] or "",
             # Объёмы
             "sales_count":     int(r["sales_count"] or 0),
             "returns_count":   int(r["returns_count"] or 0),
@@ -117,7 +127,7 @@ async def calc_margin_for_day(
             "sales_revenue":   round(_f(r["sales_revenue"]),     2),
             "returns_revenue": round(_f(r["returns_revenue"]),   2),
             "payout_sales":    round(_f(r["payout_sales"]),      2),
-            "payout_returns":  round(_f(r["payout_returns"]),    2),
+            "payout_returns": round(_f(r["payout_returns"]),    2),
             # Удержания WB
             "logistics":       round(_f(r["logistics_cost"]) + _f(r["rebill_logistics_cost"]), 2),
             "storage":         round(_f(r["storage_cost"]),      2),
