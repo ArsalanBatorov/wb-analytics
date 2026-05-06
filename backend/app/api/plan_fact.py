@@ -1,0 +1,103 @@
+"""
+Эндпоинты страницы «План/Факт».
+
+Источник данных: product_daily_stats (расчётная маржа, задержка 1-2 дня).
+Эндпоинты:
+  GET  /plan-fact/summary?date_from&date_to&plan_month — матрица 6 метрик
+  GET  /plan-fact/products?date_from&date_to           — таблица SKU
+  GET  /plans/?month=YYYY-MM-01                         — текущий план месяца
+  PUT  /plans/                                          — сохранить план месяца
+"""
+from datetime import date, datetime
+from fastapi import APIRouter, Query, HTTPException
+from pydantic import BaseModel, Field
+
+from app.database import async_session
+from app.services.plan_fact import (
+    calc_plan_fact_summary,
+    calc_plan_fact_products,
+    get_monthly_plan,
+    upsert_monthly_plan,
+)
+
+plan_fact_router = APIRouter(prefix="/plan-fact", tags=["plan-fact"])
+plans_router = APIRouter(prefix="/plans", tags=["plans"])
+
+
+def _parse_date(s: str, name: str) -> date:
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid {name}: {s}, expected YYYY-MM-DD")
+
+
+def _first_day_of_month(d: date) -> date:
+    return date(d.year, d.month, 1)
+
+
+@plan_fact_router.get("/summary")
+async def plan_fact_summary(
+    date_from: str = Query(..., description="YYYY-MM-DD"),
+    date_to: str = Query(..., description="YYYY-MM-DD"),
+    plan_month: str | None = Query(None, description="YYYY-MM-01, по умолчанию из date_to"),
+):
+    """
+    Матрица План/Факт за период date_from..date_to.
+    План берётся для plan_month (или для месяца date_to, если plan_month не указан).
+    """
+    df = _parse_date(date_from, "date_from")
+    dt = _parse_date(date_to, "date_to")
+    pm = _parse_date(plan_month, "plan_month") if plan_month else _first_day_of_month(dt)
+
+    async with async_session() as db:
+        return await calc_plan_fact_summary(db, df, dt, pm)
+
+
+@plan_fact_router.get("/products")
+async def plan_fact_products(
+    date_from: str = Query(...),
+    date_to: str = Query(...),
+):
+    """Таблица SKU из product_daily_stats за период."""
+    df = _parse_date(date_from, "date_from")
+    dt = _parse_date(date_to, "date_to")
+
+    async with async_session() as db:
+        items = await calc_plan_fact_products(db, df, dt)
+    return {
+        "date_from": date_from,
+        "date_to": date_to,
+        "products_count": len(items),
+        "products": items,
+    }
+
+
+# ============== Plans CRUD ==============
+
+class PlanInput(BaseModel):
+    model_config = {"extra": "ignore"}
+    month: str = Field(..., description="YYYY-MM-01")
+    plan_orders_qty: float = 0
+    plan_orders_revenue: float = 0
+    plan_buyouts_qty: float = 0
+    plan_buyouts_revenue: float = 0
+    plan_margin: float = 0
+
+
+@plans_router.get("/")
+async def get_plan(month: str = Query(..., description="YYYY-MM-01")):
+    """Получить план месяца. Если плана нет — вернёт нули + exists=false."""
+    m = _parse_date(month, "month")
+    m = _first_day_of_month(m)
+    async with async_session() as db:
+        return await get_monthly_plan(db, m)
+
+
+@plans_router.put("/")
+async def put_plan(payload: PlanInput):
+    """Создать или обновить план месяца."""
+    m = _parse_date(payload.month, "month")
+    m = _first_day_of_month(m)
+    data = payload.model_dump(exclude={"month"})
+    async with async_session() as db:
+        return await upsert_monthly_plan(db, m, data)

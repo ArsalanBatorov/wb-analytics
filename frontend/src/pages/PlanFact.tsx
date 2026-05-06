@@ -1,0 +1,286 @@
+/**
+ * Страница «План/Факт» (расчётный, источник product_daily_stats).
+ *
+ * Структура:
+ *  - селектор периода (Вчера / 7 / 14 / 30 / Тек.месяц / Свой) + селектор месяца плана
+ *  - блок ввода плана на месяц (5 полей, кнопка Сохранить)
+ *  - матрица 6×6 (метрика, план/день, факт/день, прогноз, план общий, факт общий, %)
+ *  - график кумулятивный (выручка / маржа / заказы) — пока упрощённо
+ *  - таблица SKU из product_daily_stats
+ */
+import { useEffect, useMemo, useState } from "react";
+import {
+  Layout, Typography, Card, Row, Col, Radio, DatePicker, Spin, Table, Tag,
+  InputNumber, Button, Space, Divider, message,
+} from "antd";
+import dayjs, { Dayjs } from "dayjs";
+import {
+  fetchPlanFactSummary, fetchPlanFactProducts,
+  fetchMonthlyPlan, updateMonthlyPlan,
+  type PlanFactSummary, type PlanFactProduct, type MonthlyPlan,
+} from "../api/client";
+
+const { Title, Text } = Typography;
+const { RangePicker } = DatePicker;
+
+const fmt = (v: number | null | undefined, suffix = "") => {
+  if (v === null || v === undefined) return "—";
+  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(v) + suffix;
+};
+const fmt2 = (v: number | null | undefined, suffix = "") => {
+  if (v === null || v === undefined) return "—";
+  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(v) + suffix;
+};
+
+const pctTag = (pct: number | null) => {
+  if (pct === null || pct === undefined) return <Text type="secondary">—</Text>;
+  let color: string = "default";
+  if (pct >= 95) color = "green";
+  else if (pct >= 80) color = "gold";
+  else if (pct > 0) color = "red";
+  return <Tag color={color}>{fmt2(pct, "%")}</Tag>;
+};
+
+export default function PlanFact() {
+  // Период
+  const [preset, setPreset] = useState<number | "custom" | "month">("month");
+  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null);
+
+  const [dateFrom, dateTo] = useMemo(() => {
+    if (preset === "custom" && range) {
+      return [range[0].format("YYYY-MM-DD"), range[1].format("YYYY-MM-DD")];
+    }
+    if (preset === "month") {
+      return [dayjs().startOf("month").format("YYYY-MM-DD"), dayjs().format("YYYY-MM-DD")];
+    }
+    if (preset === 1) {
+      const y = dayjs().subtract(1, "day").format("YYYY-MM-DD");
+      return [y, y];
+    }
+    const days = preset as number;
+    return [dayjs().subtract(days - 1, "day").format("YYYY-MM-DD"),
+            dayjs().format("YYYY-MM-DD")];
+  }, [preset, range]);
+
+  // Месяц плана (по умолчанию — месяц date_to)
+  const [planMonth, setPlanMonth] = useState<string>(
+    dayjs().startOf("month").format("YYYY-MM-DD")
+  );
+
+  // Данные
+  const [summary, setSummary] = useState<PlanFactSummary | null>(null);
+  const [products, setProducts] = useState<PlanFactProduct[]>([]);
+  const [plan, setPlan] = useState<MonthlyPlan | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  // Форма ввода плана
+  const [planForm, setPlanForm] = useState({
+    plan_orders_qty: 0,
+    plan_orders_revenue: 0,
+    plan_buyouts_qty: 0,
+    plan_buyouts_revenue: 0,
+    plan_margin: 0,
+  });
+  const [savingPlan, setSavingPlan] = useState(false);
+
+  // Загрузка данных
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      fetchPlanFactSummary({ date_from: dateFrom, date_to: dateTo }, planMonth),
+      fetchPlanFactProducts({ date_from: dateFrom, date_to: dateTo }),
+      fetchMonthlyPlan(planMonth),
+    ])
+      .then(([s, p, pl]) => {
+        setSummary(s);
+        setProducts(p);
+        setPlan(pl);
+        setPlanForm({
+          plan_orders_qty: pl.plan_orders_qty,
+          plan_orders_revenue: pl.plan_orders_revenue,
+          plan_buyouts_qty: pl.plan_buyouts_qty,
+          plan_buyouts_revenue: pl.plan_buyouts_revenue,
+          plan_margin: pl.plan_margin,
+        });
+      })
+      .catch((e) => {
+        console.error(e);
+        message.error("Ошибка загрузки данных");
+      })
+      .finally(() => setLoading(false));
+  }, [dateFrom, dateTo, planMonth]);
+
+  const savePlan = async () => {
+    setSavingPlan(true);
+    try {
+      const updated = await updateMonthlyPlan({ month: planMonth, ...planForm });
+      setPlan(updated);
+      message.success("План сохранён");
+      // Перезагрузим summary с новым планом
+      const s = await fetchPlanFactSummary({ date_from: dateFrom, date_to: dateTo }, planMonth);
+      setSummary(s);
+    } catch (e) {
+      console.error(e);
+      message.error("Ошибка сохранения плана");
+    } finally {
+      setSavingPlan(false);
+    }
+  };
+
+  // Колонки матрицы
+  const matrixColumns = [
+    { title: "Метрика", dataIndex: "title", key: "title", width: 200, fixed: "left" as const,
+      render: (v: string, row: any) => <b>{v}</b> },
+    { title: "План ср/день", dataIndex: "plan_per_day", key: "plan_per_day",
+      render: (v: number | null, row: any) => row.key === "drr" ? "—" :
+        (row.key.includes("qty") ? fmt2(v) : fmt(v, " ₽")) },
+    { title: "Факт ср/день", dataIndex: "fact_per_day", key: "fact_per_day",
+      render: (v: number | null, row: any) => row.key === "drr" ? fmt2(v, "%") :
+        (row.key.includes("qty") ? fmt2(v) : fmt(v, " ₽")) },
+    { title: "Прогноз на месяц", dataIndex: "forecast", key: "forecast",
+      render: (v: number | null, row: any) => row.key === "drr" ? fmt2(v, "%") :
+        (row.key.includes("qty") ? fmt(v) : fmt(v, " ₽")) },
+    { title: "План общий", dataIndex: "plan_total", key: "plan_total",
+      render: (v: number | null, row: any) => row.key === "drr" ? "—" :
+        (row.key.includes("qty") ? fmt(v) : fmt(v, " ₽")) },
+    { title: "Факт общий", dataIndex: "fact_total", key: "fact_total",
+      render: (v: number | null, row: any) => row.key === "drr" ? fmt2(v, "%") :
+        (row.key.includes("qty") ? fmt(v) : fmt(v, " ₽")) },
+    { title: "% выполнения", dataIndex: "pct", key: "pct",
+      render: (v: number | null) => pctTag(v) },
+  ];
+
+  // Колонки таблицы SKU
+  const skuColumns = [
+    { title: "Артикул продавца", dataIndex: "vendor_code", key: "vendor_code", width: 200, fixed: "left" as const,
+      render: (v: string) => v || "—" },
+    { title: "nm_id", dataIndex: "nm_id", key: "nm_id", width: 110,
+      render: (v: number) => (
+        <a href={`https://www.wildberries.ru/catalog/${v}/detail.aspx`} target="_blank" rel="noreferrer">{v}</a>
+      ) },
+    { title: "Название", dataIndex: "title", key: "title", ellipsis: true, width: 280 },
+    { title: "Заказы, шт", dataIndex: "orders_qty", key: "orders_qty", sorter: (a: any, b: any) => a.orders_qty - b.orders_qty,
+      render: (v: number) => fmt(v) },
+    { title: "Заказы, ₽", dataIndex: "orders_revenue", key: "orders_revenue", sorter: (a: any, b: any) => a.orders_revenue - b.orders_revenue,
+      render: (v: number) => fmt(v, " ₽") },
+    { title: "Выкупы, шт", dataIndex: "buyouts_qty", key: "buyouts_qty", sorter: (a: any, b: any) => a.buyouts_qty - b.buyouts_qty,
+      render: (v: number) => fmt(v) },
+    { title: "Выкупы, ₽", dataIndex: "buyouts_revenue", key: "buyouts_revenue", sorter: (a: any, b: any) => a.buyouts_revenue - b.buyouts_revenue,
+      render: (v: number) => fmt(v, " ₽") },
+    { title: "Валовая прибыль", dataIndex: "margin", key: "margin", sorter: (a: any, b: any) => a.margin - b.margin, defaultSortOrder: "ascend" as const,
+      render: (v: number) => <span style={{color: v < 0 ? "#cf1322" : "#3f8600"}}>{fmt(v, " ₽")}</span> },
+    { title: "Реклама", dataIndex: "ad_spend", key: "ad_spend", sorter: (a: any, b: any) => a.ad_spend - b.ad_spend,
+      render: (v: number) => fmt(v, " ₽") },
+    { title: "ДРР %", dataIndex: "drr", key: "drr", sorter: (a: any, b: any) => a.drr - b.drr,
+      render: (v: number) => fmt2(v, "%") },
+  ];
+
+  return (
+    <Layout.Content style={{ padding: 16 }}>
+      <Title level={3} style={{ marginTop: 0 }}>План/Факт</Title>
+
+      <Spin spinning={loading}>
+        {/* Селекторы периода и месяца плана */}
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space wrap>
+            <Radio.Group value={preset} onChange={(e) => setPreset(e.target.value)}>
+              <Radio.Button value={1}>Вчера</Radio.Button>
+              <Radio.Button value={7}>7 дней</Radio.Button>
+              <Radio.Button value={14}>14 дней</Radio.Button>
+              <Radio.Button value={30}>30 дней</Radio.Button>
+              <Radio.Button value="month">Тек. месяц</Radio.Button>
+              <Radio.Button value="custom">Свой</Radio.Button>
+            </Radio.Group>
+            {preset === "custom" && (
+              <RangePicker value={range as any} onChange={(r) => setRange(r as any)} format="YYYY-MM-DD" />
+            )}
+            <Text type="secondary">{dateFrom} — {dateTo}</Text>
+            <Divider type="vertical" />
+            <Text>Месяц плана:</Text>
+            <DatePicker.MonthPicker
+              value={dayjs(planMonth)}
+              onChange={(d) => d && setPlanMonth(d.startOf("month").format("YYYY-MM-DD"))}
+              format="MMMM YYYY"
+            />
+          </Space>
+        </Card>
+
+        {/* Блок ввода плана */}
+        <Card size="small" title={`План на ${dayjs(planMonth).format("MMMM YYYY")}`} style={{ marginBottom: 16 }}>
+          <Row gutter={[12, 12]}>
+            <Col xs={12} sm={8} md={4}>
+              <Text type="secondary">Заказы, ₽</Text>
+              <InputNumber<number> style={{ width: "100%" }} min={0} step={10000}
+                value={planForm.plan_orders_revenue}
+                onChange={(v) => setPlanForm({ ...planForm, plan_orders_revenue: v ?? 0 })}
+                formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, " ")}
+                parser={(v) => Number((v ?? "").toString().replace(/[\s\u00a0]/g, "").replace(",", ".")) as any}
+                decimalSeparator="," />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Text type="secondary">Выкупы, ₽</Text>
+              <InputNumber<number> style={{ width: "100%" }} min={0} step={10000}
+                value={planForm.plan_buyouts_revenue}
+                onChange={(v) => setPlanForm({ ...planForm, plan_buyouts_revenue: v ?? 0 })}
+                formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, " ")}
+                parser={(v) => Number((v ?? "").toString().replace(/[\s\u00a0]/g, "").replace(",", ".")) as any}
+                decimalSeparator="," />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Text type="secondary">Заказы, шт</Text>
+              <InputNumber<number> style={{ width: "100%" }} min={0} step={10}
+                value={planForm.plan_orders_qty}
+                onChange={(v) => setPlanForm({ ...planForm, plan_orders_qty: v ?? 0 })}
+                parser={(v) => Number((v ?? "").toString().replace(/[\s\u00a0]/g, "").replace(",", ".")) as any} />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Text type="secondary">Выкупы, шт</Text>
+              <InputNumber<number> style={{ width: "100%" }} min={0} step={1}
+                value={planForm.plan_buyouts_qty}
+                onChange={(v) => setPlanForm({ ...planForm, plan_buyouts_qty: v ?? 0 })}
+                parser={(v) => Number((v ?? "").toString().replace(/[\s\u00a0]/g, "").replace(",", ".")) as any} />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Text type="secondary">Валовая прибыль, ₽</Text>
+              <InputNumber<number> style={{ width: "100%" }} min={-9999999} step={10000}
+                value={planForm.plan_margin}
+                onChange={(v) => setPlanForm({ ...planForm, plan_margin: v ?? 0 })}
+                formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, " ")}
+                parser={(v) => Number((v ?? "").toString().replace(/[\s\u00a0]/g, "").replace(",", ".")) as any}
+                decimalSeparator="," />
+            </Col>
+            <Col xs={24} sm={24} md={4} style={{ display: "flex", alignItems: "flex-end" }}>
+              <Button type="primary" loading={savingPlan} onClick={savePlan} block>
+                {plan?.exists ? "Обновить план" : "Сохранить план"}
+              </Button>
+            </Col>
+          </Row>
+        </Card>
+
+        {/* Матрица */}
+        <Card size="small" title="Матрица показателей" style={{ marginBottom: 16 }}>
+          <Table
+            size="small"
+            rowKey="key"
+            columns={matrixColumns as any}
+            dataSource={summary?.metrics ?? []}
+            pagination={false}
+            scroll={{ x: 1100 }}
+          />
+        </Card>
+
+        {/* Таблица SKU */}
+        <Card size="small" title={`SKU (${products.length})`}>
+          <Table
+            size="small"
+            rowKey="nm_id"
+            columns={skuColumns as any}
+            dataSource={products}
+            pagination={{ defaultPageSize: 25, showSizeChanger: true, pageSizeOptions: ['25','50','100','200'] }}
+            scroll={{ x: 1500 }}
+          />
+        </Card>
+      </Spin>
+    </Layout.Content>
+  );
+}

@@ -18,12 +18,6 @@ import {
 import ruRU from "antd/locale/ru_RU";
 import dayjs from "dayjs";
 import "dayjs/locale/ru";
-import updateLocale from "dayjs/plugin/updateLocale";
-dayjs.extend(updateLocale);
-dayjs.updateLocale("ru", {
-  months: ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"],
-  monthsShort: ["Янв","Фев","Мар","Апр","Май","Июн","Июл","Авг","Сен","Окт","Ноя","Дек"],
-});
 dayjs.locale("ru");
 
 import PlanFact from "./pages/PlanFact";

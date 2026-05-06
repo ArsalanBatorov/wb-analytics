@@ -445,13 +445,19 @@ async def sync_daily_stats(days: int = 7, date_from: date | None = None, date_to
             stock_warehouse_map.setdefault(nm, []).append((wh, qty))
 
         count = 0
+        debug_counter = 0
         for item in all_history:
             product_info = item.get("product", {})
             nm_id = product_info.get("nmId") or item.get("nmID")
             if not nm_id:
                 continue
 
-            for day_data in item.get("history", []):
+            history = item.get("history", [])
+            if debug_counter < 5:
+                print(f"  Item {nm_id}: history len {len(history)}")
+                debug_counter += 1
+
+            for day_data in history:
                 dt_str = day_data.get("date", day_data.get("dt", ""))[:10]
                 try:
                     dt = date.fromisoformat(dt_str)
