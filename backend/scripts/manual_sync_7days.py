@@ -1,14 +1,16 @@
 """
 Ручной запуск синхронизации данных за последние 7 дней.
-Запускать из директории /root/wb-analytics/ :
-  source venv/bin/activate
+Запускать из директории /root/wb-analytics/backend/ :
+  cd /root/wb-analytics/backend
   python -m scripts.manual_sync_7days
 """
 import asyncio
 import sys
+import os
 from datetime import date, timedelta
 
-sys.path.insert(0, "/root/wb-analytics/backend")
+# Добавляем backend в путь если запускают не из него
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 async def main():
