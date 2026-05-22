@@ -337,9 +337,9 @@ async def _daily_sync():
     )
 
     today = date.today()
-    d30_ago = today - timedelta(days=30)
+    d7_ago = today - timedelta(days=7)
 
-    print(f"[DAILY_SYNC] Starting full sync {d30_ago}..{today}")
+    print(f"[DAILY_SYNC] Starting full sync {d7_ago}..{today}")
 
     try:
         print("[DAILY_SYNC] 1/5 Products...")
@@ -348,20 +348,20 @@ async def _daily_sync():
         print(f"[DAILY_SYNC] Products error: {e}")
 
     try:
-        print("[DAILY_SYNC] 2/5 Daily stats (30 days)...")
-        await sync_daily_stats(days=30)
+        print("[DAILY_SYNC] 2/5 Daily stats (7 days)...")
+        await sync_daily_stats(days=7)
     except Exception as e:
         print(f"[DAILY_SYNC] Stats error: {e}")
 
     try:
-        print("[DAILY_SYNC] 3/5 Ad stats (30 days)...")
-        await sync_ad_stats(days=30)
+        print("[DAILY_SYNC] 3/5 Ad stats (7 days)...")
+        await sync_ad_stats(days=7)
     except Exception as e:
         print(f"[DAILY_SYNC] Ads error: {e}")
 
     try:
         print("[DAILY_SYNC] 4/5 Realization...")
-        await sync_realization_daily(d30_ago, today)
+        await sync_realization_daily(d7_ago, today)
     except Exception as e:
         print(f"[DAILY_SYNC] Realization error: {e}")
 
