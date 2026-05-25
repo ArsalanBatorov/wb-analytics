@@ -12,11 +12,14 @@ class StatsCollector:
         campaigns = (await db.execute(select(Campaign))).scalars().all()
 
         for campaign in campaigns:
-            stats = await wb_client.get_normquery_stats(campaign.wb_campaign_id)
-            if not stats or not isinstance(stats, list):
-                continue
-
-            for s in stats:
+            # TODO: implement get_normquery_stats in wb_client or use alternative API
+            logger.warning(f"Skipping normquery stats for campaign {campaign.wb_campaign_id}: get_normquery_stats not implemented")
+            continue
+            # stats = await wb_client.get_normquery_stats(campaign.wb_campaign_id)
+            # if not stats or not isinstance(stats, list):
+            #     continue
+            #
+            # for s in stats:
                 nq = s.get("normQuery", "") or s.get("norm_query", "")
                 if not nq:
                     continue

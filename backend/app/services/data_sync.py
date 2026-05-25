@@ -263,8 +263,11 @@ async def sync_products_and_dimensions():
         logger.warning("No cards returned")
         return
 
-    # Get warehouse coefficients
-    tariff_map = await _get_weighted_tariffs(db) if False else {}  # tariffs loaded per nm after stock sync
+    # Get warehouse tariffs for coefficients
+    try:
+        tariff_map = await _get_warehouse_tariffs()
+    except Exception:
+        tariff_map = {}
 
     # Get stock info for warehouse mapping
     try:
@@ -295,7 +298,7 @@ async def sync_products_and_dimensions():
             vol = calc_volume_liters(w, h, l)
 
             wh_name = nm_warehouse.get(nm_id, "")
-            wh_coef = wh_coefs.get(wh_name, 1.0)
+            wh_coef = tariff_map.get(wh_name, {}).get("coef", 1.0)
 
             stmt = pg_insert(Product).values(
                 nm_id=nm_id,
