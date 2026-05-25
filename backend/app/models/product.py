@@ -22,6 +22,8 @@ class Product(Base):
     volume_liters = Column(Float, default=0)
     warehouse_name = Column(String, default="")
     warehouse_coef = Column(Float, default=1.0)
+    buyout_percent = Column(Float, default=0)
+    avg_price_api = Column(Float, default=0)
     delivery_base_cost = Column(Float, default=0)
     return_logistics_cost = Column(Float, default=0)
     storage_cost_per_day = Column(Float, default=0)
