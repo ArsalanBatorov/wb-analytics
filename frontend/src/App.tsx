@@ -1,28 +1,21 @@
-/**
- * Корневой компонент. Боковое меню с переключением страниц.
- * Активные страницы:
- *  - План/Факт (расчётный, источник product_daily_stats)
- *  - Реклама
- *  - Фин. отчёт (бывший План/Факт на realization_daily_stats)
- *  - Настройки
- *
- * Сверху всегда виден баннер о необходимости обновить ИЛ/ИРП,
- * если они старше 7 дней.
- */
 import { useEffect, useState } from "react";
 import { ConfigProvider, Layout, Menu, Alert, Button } from "antd";
 import {
-  FundProjectionScreenOutlined, NotificationOutlined,
-  AccountBookOutlined, SettingOutlined,
+  FundProjectionScreenOutlined,
+  NotificationOutlined,
+  AccountBookOutlined,
+  SettingOutlined,
+  AimOutlined,
 } from "@ant-design/icons";
 import ruRU from "antd/locale/ru_RU";
 import dayjs from "dayjs";
 import "dayjs/locale/ru";
 import updateLocale from "dayjs/plugin/updateLocale";
+
 dayjs.extend(updateLocale);
 dayjs.updateLocale("ru", {
-  months: ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"],
-  monthsShort: ["Янв","Фев","Мар","Апр","Май","Июн","Июл","Авг","Сен","Окт","Ноя","Дек"],
+  months: ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"],
+  monthsShort: ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"],
 });
 dayjs.locale("ru");
 
@@ -30,11 +23,11 @@ import PlanFact from "./pages/PlanFact";
 import Margin from "./pages/Margin";
 import Advertising from "./pages/Advertising";
 import Settings from "./pages/Settings";
+import LocatorDashboard from "./pages/LocatorDashboard";
 import { fetchSettings } from "./api/client";
 
 const { Sider, Content } = Layout;
-
-type PageKey = "plan_fact" | "advertising" | "fin_report" | "settings";
+type PageKey = "plan_fact" | "advertising" | "fin_report" | "settings" | "locator";
 
 function daysSince(iso: string | undefined | null): number | null {
   if (!iso) return null;
@@ -45,7 +38,6 @@ function daysSince(iso: string | undefined | null): number | null {
 
 function StaleSettingsBanner({ onGoSettings }: { onGoSettings: () => void }) {
   const [msg, setMsg] = useState<string | null>(null);
-
   useEffect(() => {
     fetchSettings()
       .then((r: any) => {
@@ -65,7 +57,6 @@ function StaleSettingsBanner({ onGoSettings }: { onGoSettings: () => void }) {
       })
       .catch(() => setMsg(null));
   }, []);
-
   if (!msg) return null;
   return (
     <Alert
@@ -85,23 +76,17 @@ const PAGES: Record<PageKey, { label: string; node: React.ReactNode }> = {
   advertising: { label: "Реклама",    node: <Advertising /> },
   fin_report:  { label: "Фин. отчёт", node: <Margin /> },
   settings:    { label: "Настройки",  node: <Settings /> },
+  locator:     { label: "Locator",    node: <LocatorDashboard /> },
 };
 
 export default function App() {
-  const [page, setPage] = useState<PageKey>("plan_fact");
+  const [page, setPage] = useState<PageKey>("locator");
   const [collapsed, setCollapsed] = useState(false);
-
   return (
     <ConfigProvider locale={ruRU}>
       <Layout style={{ minHeight: "100vh" }}>
-        <Sider
-          collapsible collapsed={collapsed} onCollapse={setCollapsed}
-          theme="light" width={200}
-        >
-          <div style={{
-            height: 48, margin: 8, display: "flex", alignItems: "center",
-            justifyContent: "center", fontWeight: 600, color: "#1677ff",
-          }}>
+        <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} theme="light" width={200}>
+          <div style={{ height: 48, margin: 8, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 600, color: "#1677ff" }}>
             {collapsed ? "WB" : "WB-Analytics"}
           </div>
           <Menu
@@ -113,6 +98,7 @@ export default function App() {
               { key: "advertising", icon: <NotificationOutlined />,         label: "Реклама" },
               { key: "fin_report",  icon: <AccountBookOutlined />,          label: "Фин. отчёт" },
               { key: "settings",    icon: <SettingOutlined />,              label: "Настройки" },
+              { key: "locator",     icon: <AimOutlined />,                  label: "Locator" },
             ]}
           />
         </Sider>

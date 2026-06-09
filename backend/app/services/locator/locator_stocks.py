@@ -1,148 +1,69 @@
-"""
-Сервис получения данных из WB API через SOCKS5-прокси.
-Остатки, заказы, продажи, воронка продаж (ДЛ, выкупаемость).
-"""
 import httpx
 import os
-from typing import Optional
 from datetime import datetime, timedelta
-from app.services.locator.locator_config import (
-    SOCKS5_PROXY, WB_API_TOKEN, TRACKED_ARTICLES,
-    WAREHOUSE_TO_REGION
-)
+from typing import Optional
+from app.services.locator.locator_config import SOCKS5_PROXY, WB_API_TOKEN, TRACKED_ARTICLES, WAREHOUSE_TO_REGION
+from app.services.locator.locator_cache import get_cached_response, set_cached_response, init_cache
+
+init_cache()
 
 STATISTICS_URL = "https://statistics-api.wildberries.ru"
 ANALYTICS_URL = "https://seller-analytics-api.wildberries.ru"
 
-
 def _client() -> httpx.Client:
-    """Создаёт httpx клиент с SOCKS5 прокси."""
-    return httpx.Client(
-        proxy=SOCKS5_PROXY,
-        timeout=60,
-        verify=False,
-        headers={"Authorization": WB_API_TOKEN}
-    )
+    return httpx.Client(proxy=SOCKS5_PROXY, timeout=60, verify=False, headers={"Authorization": WB_API_TOKEN})
 
-
-def get_stocks(date_from: str = None) -> list[dict]:
-    """
-    Возвращает остатки на складах WB.
-    GET /api/v1/supplier/stocks
-    """
+def get_stocks(date_from: str = None, force_refresh: bool = False) -> list[dict]:
     if date_from is None:
         date_from = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-
+    key = f"stocks_{date_from}"
+    if not force_refresh:
+        cached = get_cached_response(key)
+        if cached is not None:
+            return cached
     with _client() as c:
-        r = c.get(f"{STATISTICS_URL}/api/v1/supplier/stocks",
-                  params={"dateFrom": date_from})
-        r.raise_for_status()
-        return r.json()
-
-
-def get_sales(date_from: str = None) -> list[dict]:
-    """
-    Возвращает продажи за период.
-    GET /api/v1/supplier/sales?dateFrom=...
-    """
-    if date_from is None:
-        date_from = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%dT00:00:00")
-
-    all_sales = []
-    current_from = date_from
-
-    with _client() as c:
-        while True:
-            r = c.get(f"{STATISTICS_URL}/api/v1/supplier/sales",
-                      params={"dateFrom": current_from})
-            r.raise_for_status()
-            batch = r.json()
-            if not batch:
-                break
-            all_sales.extend(batch)
-            # Пагинация: берём lastChangeDate последней строки
-            current_from = batch[-1]["lastChangeDate"]
-            if len(batch) < 80000:  # не полный лимит — значит всё
-                break
-
-    return all_sales
-
-
-def get_orders(date_from: str = None) -> list[dict]:
-    """
-    Возвращает заказы за период.
-    GET /api/v1/supplier/orders?dateFrom=...
-    """
-    if date_from is None:
-        date_from = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%dT00:00:00")
-
-    all_orders = []
-    current_from = date_from
-
-    with _client() as c:
-        while True:
-            r = c.get(f"{STATISTICS_URL}/api/v1/supplier/orders",
-                      params={"dateFrom": current_from})
-            r.raise_for_status()
-            batch = r.json()
-            if not batch:
-                break
-            all_orders.extend(batch)
-            current_from = batch[-1]["lastChangeDate"]
-            if len(batch) < 80000:
-                break
-
-    return all_orders
-
-
-def get_sales_funnel(nm_ids: list[int], days: int = 28) -> list[dict]:
-    """
-    Воронка продаж v3: ДЛ, выкупаемость, заказы по каждому nmId.
-    POST /api/analytics/v3/sales-funnel/products
-    """
-    end_date = datetime.now().strftime("%Y-%m-%d")
-    start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-
-    body = {
-        "nmIDs": nm_ids,
-        "selectedPeriod": {"start": start_date, "end": end_date}
-    }
-
-    with _client() as c:
-        r = c.post(
-            f"{ANALYTICS_URL}/api/analytics/v3/sales-funnel/products",
-            headers={"Authorization": WB_API_TOKEN, "Content-Type": "application/json"},
-            json=body
-        )
+        r = c.get(f"{STATISTICS_URL}/api/v1/supplier/stocks", params={"dateFrom": date_from})
         r.raise_for_status()
         data = r.json()
-        return data.get("data", {}).get("products", [])
+    set_cached_response(key, data)
+    return data
 
+def get_sales_funnel(nm_ids: list[int], days: int = 28, force_refresh: bool = False) -> list[dict]:
+    end_date = datetime.now().strftime("%Y-%m-%d")
+    start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    key = f"funnel_{start_date}_{end_date}_{'_'.join(map(str, sorted(nm_ids)))}"
+    if not force_refresh:
+        cached = get_cached_response(key)
+        if cached is not None:
+            return cached
+    body = {"nmIDs": nm_ids, "selectedPeriod": {"start": start_date, "end": end_date}}
+    with _client() as c:
+        r = c.post(f"{ANALYTICS_URL}/api/analytics/v3/sales-funnel/products",
+                   headers={"Authorization": WB_API_TOKEN, "Content-Type": "application/json"},
+                   json=body)
+        r.raise_for_status()
+        data = r.json().get("data", {}).get("products", [])
+    set_cached_response(key, data)
+    return data
 
-def get_filtered_stocks() -> list[dict]:
-    """
-    Остатки только по отслеживаемым артикулам.
-    Возвращает [{barcode, supplierArticle, nmId, techSize, quantity,
-                  warehouseName, brand, subject, ...}, ...]
-    """
-    all_stocks = get_stocks()
+# Остальные функции (get_filtered_stocks, get_stock_summary, get_sales_funnel_summary) остаются без изменений,
+# но они вызывают get_stocks и get_sales_funnel, которые уже используют кэш.
+# Для совместимости передадим force_refresh=False по умолчанию.
+# При необходимости добавим параметр force_refresh в эти функции.
+
+def get_filtered_stocks(force_refresh: bool = False) -> list[dict]:
+    all_stocks = get_stocks(force_refresh=force_refresh)
     return [s for s in all_stocks if s.get("supplierArticle") in TRACKED_ARTICLES]
 
-
-def get_stock_summary() -> dict:
-    """
-    Сводка остатков: { "ТРЕНД22WHITE": { "42": {"Коледино": 5, ...}, ... }, ... }
-    """
-    stocks = get_filtered_stocks()
+def get_stock_summary(force_refresh: bool = False) -> dict:
+    stocks = get_filtered_stocks(force_refresh=force_refresh)
     summary = {}
-
     for s in stocks:
         art = s["supplierArticle"]
         size = s["techSize"]
         wh = s["warehouseName"]
         qty = s.get("quantity", 0)
         region = WAREHOUSE_TO_REGION.get(wh.lower(), "Прочее")
-
         if art not in summary:
             summary[art] = {}
         if size not in summary[art]:
@@ -158,26 +79,16 @@ def get_stock_summary() -> dict:
             "brand": s["brand"],
             "subject": s["subject"],
         }
-
     return summary
 
-
-def get_sales_funnel_summary(days: int = 28) -> list[dict]:
-    """
-    Сводка воронки продаж для отслеживаемых артикулов.
-    Возвращает [{vendorCode, nmId, dl, orders, buyouts,
-                  buyoutPercent, avgOrdersPerDay, stockWb, ...}, ...]
-    """
-    stocks = get_filtered_stocks()
+def get_sales_funnel_summary(days: int = 28, force_refresh: bool = False) -> list[dict]:
+    stocks = get_filtered_stocks(force_refresh=force_refresh)
     tracked_nm_ids = list(set(s["nmId"] for s in stocks))
-
-    funnel = get_sales_funnel(tracked_nm_ids, days)
+    funnel = get_sales_funnel(tracked_nm_ids, days, force_refresh=force_refresh)
     result = []
-
     for p in funnel:
         prod = p.get("product", {})
         stat = p.get("statistic", {}).get("selected", {})
-
         result.append({
             "vendorCode": prod.get("vendorCode"),
             "nmId": prod.get("nmId"),
@@ -195,5 +106,4 @@ def get_sales_funnel_summary(days: int = 28) -> list[dict]:
             "addToCartPercent": stat.get("conversions", {}).get("addToCartPercent", 0),
             "stockWb": prod.get("stocks", {}).get("wb", 0),
         })
-
     return result

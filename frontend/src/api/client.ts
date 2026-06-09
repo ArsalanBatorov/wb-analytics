@@ -238,3 +238,60 @@ export const updateMonthlyPlan = (data: {
   plan_margin: number;
 }) =>
   api.put<MonthlyPlan>(`/plans/`, data).then(r => r.data);
+
+// ============================================================
+// Locator API
+// ============================================================
+
+const LOCATOR_BASE = '/api/locator';
+
+export async function fetchLocatorSummary() {
+  const r = await fetch(LOCATOR_BASE + '/summary');
+  if (!r.ok) throw new Error('Locator summary failed');
+  return r.json();
+}
+
+export async function fetchLocatorStocks(article?: string, warehouse?: string) {
+  const params = new URLSearchParams();
+  if (article) params.set('article', article);
+  if (warehouse) params.set('warehouse', warehouse);
+  const r = await fetch(LOCATOR_BASE + '/stocks?' + params.toString());
+  if (!r.ok) throw new Error('Locator stocks failed');
+  return r.json();
+}
+
+export async function fetchLocatorDL() {
+  const r = await fetch(LOCATOR_BASE + '/dl');
+  if (!r.ok) throw new Error('Locator DL failed');
+  return r.json();
+}
+
+export async function fetchLocatorIRPHistory() {
+  const r = await fetch(LOCATOR_BASE + '/irp-history');
+  if (!r.ok) throw new Error('Locator IRP history failed');
+  return r.json();
+}
+
+export async function fetchLocatorQuickWins() {
+  const r = await fetch(LOCATOR_BASE + '/quick-wins');
+  if (!r.ok) throw new Error('Locator quick-wins failed');
+  return r.json();
+}
+
+export async function fetchLocatorRecommendations() {
+  const r = await fetch(LOCATOR_BASE + '/recommendations');
+  if (!r.ok) throw new Error('Locator recommendations failed');
+  return r.json();
+}
+
+export async function fetchLocatorPacking(generate = false) {
+  const r = await fetch(LOCATOR_BASE + '/packing?generate=' + generate);
+  if (!r.ok) throw new Error('Locator packing failed');
+  return r.json();
+}
+
+export async function fetchLocatorAlerts() {
+  const r = await fetch(LOCATOR_BASE + '/alerts');
+  if (!r.ok) throw new Error('Locator alerts failed');
+  return r.json();
+}
