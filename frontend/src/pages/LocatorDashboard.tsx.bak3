@@ -28,8 +28,7 @@ import type {
   LocatorDlRealResponse, 
   ArticleInfo, 
   SizeInfo, 
-  RegionDetail,
-  InTransitData
+  RegionDetail 
 } from '@/types/locator';
 
 const { Title, Text } = Typography;
@@ -40,7 +39,6 @@ const LocatorDashboard: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [uploadingGeo, setUploadingGeo] = useState(false);
   const [uploadingStocks, setUploadingStocks] = useState(false);
-  const [uploadingInTransit, setUploadingInTransit] = useState(false);
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
 
   const fetchData = async () => {
@@ -62,10 +60,6 @@ const LocatorDashboard: React.FC = () => {
   }, []);
 
   const handleUploadGeo = async (file: File) => {
-    if (!dateRange) {
-      message.warning("Укажите период отчёта для точного расчёта OOS");
-    }
-    
     setUploadingGeo(true);
     const formData = new FormData();
     formData.append('file', file);
@@ -104,42 +98,21 @@ const LocatorDashboard: React.FC = () => {
     return false;
   };
 
-  const handleUploadInTransit = async (file: File) => {
-    setUploadingInTransit(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    try {
-      await axios.post('/api/locator/import-in-transit', formData);
-      message.success('Поставки в пути загружены');
-      fetchData();
-    } catch (error) {
-      message.error('Ошибка загрузки поставок');
-    } finally {
-      setUploadingInTransit(false);
-    }
-    return false;
-  };
-
   const getDlTagColor = (dl: number | null): string => {
     if (dl === null) return 'default';
-    if (dl >= 60) return 'green';
-    if (dl >= 55) return 'orange';
+    if (dl >= 80) return 'green';
+    if (dl >= 60) return 'lime';
     if (dl >= 40) return 'gold';
+    if (dl >= 20) return 'orange';
     return 'red';
   };
 
-  const renderOOS = (days: number | null) => {
-    if (days === null) {
-      return <Tag color="green">∞</Tag>;
-    }
-    let color = 'red';
-    if (days >= 30) color = 'green';
-    else if (days >= 14) color = 'gold';
-    else if (days >= 7) color = 'orange';
-    else color = 'red';
-    
-    return <Tag color={color}>{days.toFixed(1)} дн.</Tag>;
+  const getDaysToOosTagColor = (days: number | null): string => {
+    if (days === null) return 'default';
+    if (days >= 30) return 'green';
+    if (days >= 14) return 'blue';
+    if (days >= 7) return 'orange';
+    return 'red';
   };
 
   const articleColumns: ColumnsType<ArticleInfo> = [
@@ -150,6 +123,7 @@ const LocatorDashboard: React.FC = () => {
       fixed: 'left',
       width: 180,
       sorter: (a, b) => a.vendorCode.localeCompare(b.vendorCode),
+      defaultSortOrder: 'ascend',
       render: (text) => <Text strong>{text}</Text>
     },
     {
@@ -201,16 +175,7 @@ const LocatorDashboard: React.FC = () => {
       dataIndex: 'daysToOOS',
       key: 'daysToOOS',
       width: 110,
-      render: (value) => renderOOS(value)
-    },
-    {
-      title: 'Влияние на ИРП (%)',
-      dataIndex: 'ilWeight',
-      key: 'ilWeight',
-      width: 120,
-      defaultSortOrder: 'descend',
-      sorter: (a, b) => a.ilWeight - b.ilWeight,
-      render: (value) => `${value.toFixed(2)}%`
+      render: (value) => <Tag color={getDaysToOosTagColor(value)}>{value !== null ? `${value.toFixed(1)} дн.` : 'Н/Д'}</Tag>
     }
   ];
 
@@ -218,37 +183,13 @@ const LocatorDashboard: React.FC = () => {
     { title: 'Размер', dataIndex: 'size', key: 'size', width: 100 },
     { title: 'ДЛ (%)', dataIndex: 'dl', key: 'dl', width: 100, render: (v) => <Tag color={getDlTagColor(v)}>{v !== null ? v : 'Н/Д'}</Tag> },
     { title: 'Заказы', dataIndex: 'ordersTotal', key: 'ordersTotal', width: 100, render: (v) => v.toLocaleString() },
-    { title: 'Выкуп (%)', dataIndex: 'buyoutPercent', key: 'buyoutPercent', width: 100, render: (v) => v !== null ? `${v}%` : 'Н/Д' },
     { title: 'Остаток', dataIndex: 'stockWB', key: 'stockWB', width: 100, render: (v) => v?.toLocaleString() || 'Н/Д' },
-    { title: 'Days to OOS', dataIndex: 'daysToOOS', key: 'daysToOOS', width: 110, render: (v) => renderOOS(v) },
-    {
-      title: 'В пути',
-      dataIndex: 'inTransit',
-      key: 'inTransit',
-      width: 100,
-      render: (inTransit: InTransitData | undefined) => {
-        if (!inTransit || inTransit.totalQty === 0) {
-          return <Text type="secondary">—</Text>;
-        }
-        return (
-          <Tooltip title={
-            <div>
-              {inTransit.batches.map((batch, idx) => (
-                <div key={idx}>{batch.warehouse}: {batch.quantity} шт. (ETA: {batch.eta})</div>
-              ))}
-            </div>
-          }>
-            <Tag color="blue">{inTransit.totalQty} шт.</Tag>
-          </Tooltip>
-        );
-      }
-    }
+    { title: 'Days to OOS', dataIndex: 'daysToOOS', key: 'daysToOOS', width: 110, render: (v) => <Tag color={getDaysToOosTagColor(v)}>{v !== null ? `${v.toFixed(1)} дн.` : 'Н/Д'}</Tag> }
   ];
 
   const regionColumns: ColumnsType<RegionDetail> = [
     { title: 'Регион', dataIndex: 'region', key: 'region', width: 200 },
     { title: 'Заказы', dataIndex: 'orders_total', key: 'orders_total', width: 100, render: (v) => v.toLocaleString() },
-    { title: 'Локальные', dataIndex: 'orders_local', key: 'orders_local', width: 100, render: (v) => v.toLocaleString() },
     { title: 'ДЛ (%)', dataIndex: 'dl', key: 'dl', width: 100, render: (v) => <Tag color={getDlTagColor(v)}>{v !== null ? v : 'Н/Д'}</Tag> }
   ];
 
@@ -260,12 +201,9 @@ const LocatorDashboard: React.FC = () => {
       pagination={false}
       size="small"
       expandable={{
-        expandedRowRender: (size) => {
-          if (!size.byRegion || size.byRegion.length === 0) {
-            return <Text type="secondary">Нет данных</Text>;
-          }
-          return <Table columns={regionColumns} dataSource={size.byRegion} rowKey="region" pagination={false} size="small" />;
-        },
+        expandedRowRender: (size) => (
+          <Table columns={regionColumns} dataSource={size.byRegion} rowKey="region" pagination={false} size="small" />
+        ),
         rowExpandable: (size) => size.byRegion && size.byRegion.length > 0
       }}
     />
@@ -277,68 +215,31 @@ const LocatorDashboard: React.FC = () => {
       
       {data && (
         <Row gutter={16} style={{ marginBottom: 24 }}>
-          <Col span={6}>
-            <Card>
-              <Statistic title="Интегральный ИЛ" value={data.il || 0} precision={2} suffix="%" />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic title="Интегральный ИРП" value={data.irp || 0} precision={2} suffix="%" />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic title="Период" value={data.periodDays || 0} suffix="дн." />
-              <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-                {data.dateFrom && data.dateTo ? `${data.dateFrom} — ${data.dateTo}` : '—'}
-              </Text>
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic title="Артикулов" value={data.articles?.length || 0} />
-            </Card>
-          </Col>
+          <Col span={6}><Card><Statistic title="ИЛ" value={data.il || 0} precision={2} suffix="%" prefix={<ArrowUpOutlined />} /></Card></Col>
+          <Col span={6}><Card><Statistic title="ИРП" value={data.irp || 0} precision={2} suffix="%" prefix={<ArrowUpOutlined />} /></Card></Col>
+          <Col span={6}><Card><Statistic title="Всего заказов" value={data.totalOrders || 0} /><Text type="secondary">за {data.periodDays} дней</Text></Card></Col>
+          <Col span={6}><Card><Statistic title="Артикулов" value={data.articles?.length || 0} /></Card></Col>
         </Row>
       )}
 
       <Card title="Загрузка отчётов" style={{ marginBottom: 24 }}>
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <Space style={{ width: '100%' }} direction="vertical">
           <Space>
-            <RangePicker 
-              value={dateRange} 
-              onChange={(dates) => setDateRange(dates as [Dayjs, Dayjs])} 
-              format="YYYY-MM-DD" 
-              placeholder={['Дата начала', 'Дата окончания']}
-            />
-            <Text type="secondary" style={{ fontSize: 12 }}>(указывается при загрузке GEO отчёта)</Text>
-          </Space>
-          <Space wrap>
+            <RangePicker value={dateRange} onChange={(dates) => setDateRange(dates as [Dayjs, Dayjs])} format="YYYY-MM-DD" />
             <Upload accept=".xlsx" showUploadList={false} beforeUpload={handleUploadGeo}>
-              <Button type="primary" icon={<FileExcelOutlined />} loading={uploadingGeo}>Загрузить GEO отчёт</Button>
+              <Button type="primary" icon={<FileExcelOutlined />} loading={uploadingGeo}>GEO отчёт</Button>
             </Upload>
             <Upload accept=".xlsx" showUploadList={false} beforeUpload={handleUploadStocks}>
-              <Button icon={<UploadOutlined />} loading={uploadingStocks}>Загрузить Stocks отчёт</Button>
+              <Button icon={<UploadOutlined />} loading={uploadingStocks}>Stocks отчёт</Button>
             </Upload>
-            <Upload accept=".xlsx" showUploadList={false} beforeUpload={handleUploadInTransit}>
-              <Button icon={<UploadOutlined />} loading={uploadingInTransit}>Загрузить поставки в пути</Button>
-            </Upload>
-            <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>Обновить данные</Button>
+            <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>Обновить</Button>
           </Space>
         </Space>
       </Card>
 
       <Card title="Аналитика по артикулам">
         <Spin spinning={loading}>
-          <Table 
-            columns={articleColumns} 
-            dataSource={data?.articles || []} 
-            rowKey="nmId" 
-            expandable={{ expandedRowRender }} 
-            pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (total) => `Всего ${total} артикулов` }} 
-            scroll={{ x: 1200 }} 
-          />
+          <Table columns={articleColumns} dataSource={data?.articles || []} rowKey="nmId" expandable={{ expandedRowRender }} pagination={{ pageSize: 20 }} scroll={{ x: 1200 }} />
         </Spin>
       </Card>
     </div>

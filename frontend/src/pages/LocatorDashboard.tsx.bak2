@@ -1,0 +1,501 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Table, 
+  Card, 
+  Button, 
+  Upload, 
+  DatePicker, 
+  Space, 
+  Typography, 
+  Tag, 
+  Tooltip,
+  message,
+  Spin,
+  Row,
+  Col,
+  Statistic
+} from 'antd';
+import { 
+  UploadOutlined, 
+  DownloadOutlined, 
+  ReloadOutlined,
+  FileExcelOutlined,
+  ArrowUpOutlined,
+  ArrowDownOutlined
+} from '@ant-design/icons';
+import type { ColumnsType } from 'antd/es/table';
+import dayjs, { Dayjs } from 'dayjs';
+import axios from 'axios';
+import type { 
+  LocatorDlRealResponse, 
+  ArticleInfo, 
+  SizeInfo, 
+  RegionDetail 
+} from '@/types/locator';
+
+const { Title, Text } = Typography;
+const { RangePicker } = DatePicker;
+
+interface LocatorDashboardProps {}
+
+const LocatorDashboard: React.FC<LocatorDashboardProps> = () => {
+  const [data, setData] = useState<LocatorDlRealResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [uploadingGeo, setUploadingGeo] = useState(false);
+  const [uploadingStocks, setUploadingStocks] = useState(false);
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
+
+  // Загрузка данных
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get<LocatorDlRealResponse>('/api/locator/dl-real');
+      setData(response.data);
+      message.success('Данные загружены');
+    } catch (error) {
+      console.error('Ошибка загрузки:', error);
+      message.error('Не удалось загрузить данные');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // Загрузка GEO отчёта
+  const handleUploadGeo = async (file: File) => {
+    setUploadingGeo(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    if (dateRange) {
+      formData.append('date_from', dateRange[0].format('YYYY-MM-DD'));
+      formData.append('date_to', dateRange[1].format('YYYY-MM-DD'));
+    }
+    
+    try {
+      await axios.post('/api/locator/import-geo', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      message.success('GEO отчёт загружен');
+      fetchData();
+    } catch (error) {
+      message.error('Ошибка загрузки GEO отчёта');
+    } finally {
+      setUploadingGeo(false);
+    }
+    return false;
+  };
+
+  // Загрузка Stocks отчёта
+  const handleUploadStocks = async (file: File) => {
+    setUploadingStocks(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      await axios.post('/api/locator/import-stocks', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      message.success('Stocks отчёт загружен');
+      fetchData();
+    } catch (error) {
+      message.error('Ошибка загрузки Stocks отчёта');
+    } finally {
+      setUploadingStocks(false);
+    }
+    return false;
+  };
+
+  // Функция для определения цвета тега ДЛ
+  const getDlTagColor = (dl: number | null): string => {
+    if (dl === null) return 'default';
+    if (dl >= 80) return 'green';
+    if (dl >= 60) return 'lime';
+    if (dl >= 40) return 'gold';
+    if (dl >= 20) return 'orange';
+    return 'red';
+  };
+
+  // Функция для определения цвета тега Days to OOS
+  const getDaysToOosTagColor = (days: number | null): string => {
+    if (days === null) return 'default';
+    if (days >= 30) return 'green';
+    if (days >= 14) return 'blue';
+    if (days >= 7) return 'orange';
+    return 'red';
+  };
+
+  // Колонки для уровня артикулов
+  const articleColumns: ColumnsType<ArticleInfo> = [
+    {
+      title: 'Артикул продавца',
+      dataIndex: 'vendorCode',
+      key: 'vendorCode',
+      fixed: 'left',
+      width: 180,
+      sorter: (a, b) => a.vendorCode.localeCompare(b.vendorCode),
+      defaultSortOrder: 'ascend',
+      render: (text) => <Text strong>{text}</Text>
+    },
+    {
+      title: 'NM ID',
+      dataIndex: 'nmId',
+      key: 'nmId',
+      width: 100,
+      render: (text) => <Text code>{text}</Text>
+    },
+    {
+      title: 'ДЛ (%)',
+      dataIndex: 'dl',
+      key: 'dl',
+      width: 100,
+      sorter: (a, b) => (a.dl || 0) - (b.dl || 0),
+      render: (value) => (
+        <Tag color={getDlTagColor(value)}>{value !== null ? value : 'Н/Д'}</Tag>
+      )
+    },
+    {
+      title: 'КТР',
+      dataIndex: 'ktr',
+      key: 'ktr',
+      width: 80,
+      sorter: (a, b) => (a.ktr || 0) - (b.ktr || 0),
+      render: (value) => value?.toFixed(2) || 'Н/Д'
+    },
+    {
+      title: 'КРП',
+      dataIndex: 'krp',
+      key: 'krp',
+      width: 80,
+      sorter: (a, b) => (a.krp || 0) - (b.krp || 0),
+      render: (value) => value?.toFixed(2) || 'Н/Д'
+    },
+    {
+      title: 'Заказы (шт.)',
+      dataIndex: 'ordersTotal',
+      key: 'ordersTotal',
+      width: 100,
+      sorter: (a, b) => a.ordersTotal - b.ordersTotal,
+      render: (value) => <Text strong>{value.toLocaleString()}</Text>
+    },
+    {
+      title: 'Локальные заказы',
+      dataIndex: 'ordersLocal',
+      key: 'ordersLocal',
+      width: 120,
+      sorter: (a, b) => a.ordersLocal - b.ordersLocal,
+      render: (value) => value.toLocaleString()
+    },
+    {
+      title: 'Остаток (шт.)',
+      dataIndex: 'stockWB',
+      key: 'stockWB',
+      width: 100,
+      sorter: (a, b) => a.stockWB - b.stockWB,
+      render: (value) => (
+        <Text strong={value < 10} type={value < 10 ? 'danger' : undefined}>
+          {value.toLocaleString()}
+        </Text>
+      )
+    },
+    {
+      title: 'Days to OOS',
+      dataIndex: 'daysToOOS',
+      key: 'daysToOOS',
+      width: 110,
+      sorter: (a, b) => (a.daysToOOS || 0) - (b.daysToOOS || 0),
+      render: (value) => (
+        <Tag color={getDaysToOosTagColor(value)}>
+          {value !== null ? `${value.toFixed(1)} дн.` : 'Н/Д'}
+        </Tag>
+      )
+    },
+    {
+      title: 'Вклад в ИРП (%)',
+      dataIndex: 'ilWeight',
+      key: 'ilWeight',
+      width: 120,
+      sorter: (a, b) => a.ilWeight - b.ilWeight,
+      render: (value) => (
+        <Tooltip title="Взвешенный вклад в интегральный индекс развития продаж">
+          <span>{value.toFixed(2)}%</span>
+        </Tooltip>
+      )
+    }
+  ];
+
+  // Колонки для уровня размеров
+  const sizeColumns = (article: ArticleInfo): ColumnsType<SizeInfo> => [
+    {
+      title: 'Размер',
+      dataIndex: 'size',
+      key: 'size',
+      width: 100,
+      sorter: (a, b) => {
+        const aNum = parseInt(a.size) || 0;
+        const bNum = parseInt(b.size) || 0;
+        return aNum - bNum;
+      },
+      defaultSortOrder: 'ascend'
+    },
+    {
+      title: 'ДЛ (%)',
+      dataIndex: 'dl',
+      key: 'dl',
+      width: 100,
+      render: (value) => <Tag color={getDlTagColor(value)}>{value !== null ? value : 'Н/Д'}</Tag>
+    },
+    {
+      title: 'КТР',
+      dataIndex: 'ktr',
+      key: 'ktr',
+      width: 80,
+      render: (value) => value?.toFixed(2) || 'Н/Д'
+    },
+    {
+      title: 'КРП',
+      dataIndex: 'krp',
+      key: 'krp',
+      width: 80,
+      render: (value) => value?.toFixed(2) || 'Н/Д'
+    },
+    {
+      title: 'Заказы',
+      dataIndex: 'ordersTotal',
+      key: 'ordersTotal',
+      width: 100,
+      render: (value) => value.toLocaleString()
+    },
+    {
+      title: 'Выкуп (%)',
+      dataIndex: 'buyoutPercent',
+      key: 'buyoutPercent',
+      width: 100,
+      render: (value) => value !== null ? `${value}%` : 'Н/Д'
+    },
+    {
+      title: 'Остаток',
+      dataIndex: 'stockWB',
+      key: 'stockWB',
+      width: 100,
+      render: (value) => value?.toLocaleString() || 'Н/Д'
+    },
+    {
+      title: 'Days to OOS',
+      dataIndex: 'daysToOOS',
+      key: 'daysToOOS',
+      width: 110,
+      render: (value) => (
+        <Tag color={getDaysToOosTagColor(value)}>
+          {value !== null ? `${value.toFixed(1)} дн.` : 'Н/Д'}
+        </Tag>
+      )
+    },
+    {
+      title: 'Вклад в ИРП',
+      dataIndex: 'ilWeight',
+      key: 'ilWeight',
+      width: 100,
+      render: (value) => `${value.toFixed(2)}%`
+    }
+  ];
+
+  // Колонки для уровня регионов
+  const regionColumns = (size: SizeInfo): ColumnsType<RegionDetail> => [
+    {
+      title: 'Регион',
+      dataIndex: 'region',
+      key: 'region',
+      width: 200,
+      sorter: (a, b) => a.region.localeCompare(b.region),
+      defaultSortOrder: 'ascend'
+    },
+    {
+      title: 'Заказы (шт.)',
+      dataIndex: 'orders_total',
+      key: 'orders_total',
+      width: 100,
+      sorter: (a, b) => a.orders_total - b.orders_total,
+      render: (value) => value.toLocaleString()
+    },
+    {
+      title: 'Локальные заказы',
+      dataIndex: 'orders_local',
+      key: 'orders_local',
+      width: 120,
+      render: (value) => value.toLocaleString()
+    },
+    {
+      title: 'ДЛ (%)',
+      dataIndex: 'dl',
+      key: 'dl',
+      width: 100,
+      render: (value) => <Tag color={getDlTagColor(value)}>{value !== null ? value : 'Н/Д'}</Tag>
+    }
+  ];
+
+  // Расширенная таблица с тремя уровнями
+  const expandedRowRender = (article: ArticleInfo) => {
+    return (
+      <Table<SizeInfo>
+        columns={sizeColumns(article)}
+        dataSource={article.sizes}
+        rowKey="size"
+        pagination={false}
+        size="small"
+        expandable={{
+          expandedRowRender: (size) => (
+            <Table<RegionDetail>
+              columns={regionColumns(size)}
+              dataSource={size.byRegion}
+              rowKey="region"
+              pagination={false}
+              size="small"
+            />
+          ),
+          rowExpandable: (size) => size.byRegion && size.byRegion.length > 0
+        }}
+      />
+    );
+  };
+
+  return (
+    <div style={{ padding: 24 }}>
+      {/* Заголовок */}
+      <Title level={2} style={{ marginBottom: 24 }}>
+        Локатор поставок
+      </Title>
+
+      {/* KPI шапка */}
+      {data && (
+        <Row gutter={16} style={{ marginBottom: 24 }}>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="Интегральный ИЛ"
+                value={data.il || 0}
+                precision={2}
+                prefix={<ArrowUpOutlined style={{ color: '#3f8600' }} />}
+                suffix="%"
+                valueStyle={{ color: '#3f8600', fontSize: 28 }}
+              />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="Интегральный ИРП"
+                value={data.irp || 0}
+                precision={2}
+                prefix={<ArrowUpOutlined style={{ color: '#3f8600' }} />}
+                suffix="%"
+                valueStyle={{ color: '#3f8600', fontSize: 28 }}
+              />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="Всего заказов"
+                value={data.totalOrders || 0}
+                precision={0}
+                valueStyle={{ fontSize: 28 }}
+              />
+              <Text type="secondary">за {data.periodDays} дней</Text>
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="Артикулов в отчёте"
+                value={data.articles?.length || 0}
+                precision={0}
+                valueStyle={{ fontSize: 28 }}
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      {/* Блок загрузки отчётов */}
+      <Card title="Загрузка отчётов" style={{ marginBottom: 24 }}>
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Space>
+            <RangePicker
+              value={dateRange}
+              onChange={(dates) => setDateRange(dates as [Dayjs, Dayjs])}
+              format="YYYY-MM-DD"
+              placeholder={['Дата начала', 'Дата окончания']}
+            />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              (указывается при загрузке GEO отчёта)
+            </Text>
+          </Space>
+          
+          <Space size="large">
+            <Upload
+              accept=".xlsx"
+              showUploadList={false}
+              beforeUpload={handleUploadGeo}
+            >
+              <Button 
+                type="primary" 
+                icon={<FileExcelOutlined />} 
+                loading={uploadingGeo}
+              >
+                Загрузить GEO отчёт
+              </Button>
+            </Upload>
+            
+            <Upload
+              accept=".xlsx"
+              showUploadList={false}
+              beforeUpload={handleUploadStocks}
+            >
+              <Button 
+                icon={<UploadOutlined />} 
+                loading={uploadingStocks}
+              >
+                Загрузить Stocks отчёт
+              </Button>
+            </Upload>
+            
+            <Button 
+              icon={<ReloadOutlined />} 
+              onClick={fetchData}
+              loading={loading}
+            >
+              Обновить данные
+            </Button>
+          </Space>
+        </Space>
+      </Card>
+
+      {/* Таблица с данными */}
+      <Card title="Аналитика по артикулам">
+        <Spin spinning={loading}>
+          <Table<ArticleInfo>
+            columns={articleColumns}
+            dataSource={data?.articles || []}
+            rowKey="nmId"
+            expandable={{
+              expandedRowRender,
+              defaultExpandAllRows: false
+            }}
+            pagination={{
+              pageSize: 20,
+              showSizeChanger: true,
+              showTotal: (total) => `Всего ${total} артикулов`
+            }}
+            scroll={{ x: 1200 }}
+          />
+        </Spin>
+      </Card>
+    </div>
+  );
+};
+
+export default LocatorDashboard;

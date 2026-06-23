@@ -28,8 +28,7 @@ import type {
   LocatorDlRealResponse, 
   ArticleInfo, 
   SizeInfo, 
-  RegionDetail,
-  InTransitData
+  RegionDetail 
 } from '@/types/locator';
 
 const { Title, Text } = Typography;
@@ -87,23 +86,6 @@ const LocatorDashboard: React.FC = () => {
     return false;
   };
 
-  const handleUploadStocks = async (file: File) => {
-    setUploadingStocks(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    try {
-      await axios.post('/api/locator/import-stocks', formData);
-      message.success('Stocks отчёт загружен');
-      fetchData();
-    } catch (error) {
-      message.error('Ошибка загрузки Stocks отчёта');
-    } finally {
-      setUploadingStocks(false);
-    }
-    return false;
-  };
-
   const handleUploadInTransit = async (file: File) => {
     setUploadingInTransit(true);
     const formData = new FormData();
@@ -121,6 +103,24 @@ const LocatorDashboard: React.FC = () => {
     return false;
   };
 
+  const handleUploadStocks = async (file: File) => {
+    setUploadingStocks(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      await axios.post('/api/locator/import-stocks', formData);
+      message.success('Stocks отчёт загружен');
+      fetchData();
+    } catch (error) {
+      message.error('Ошибка загрузки Stocks отчёта');
+    } finally {
+      setUploadingStocks(false);
+    }
+    return false;
+  };
+
+  // ✅ Исправлено по ТЗ: ≥60 зелёный, 55-59 оранжевый, 40-54 жёлтый, <40 красный
   const getDlTagColor = (dl: number | null): string => {
     if (dl === null) return 'default';
     if (dl >= 60) return 'green';
@@ -129,6 +129,7 @@ const LocatorDashboard: React.FC = () => {
     return 'red';
   };
 
+  // ✅ Исправлено по ТЗ: <7 красный, 7-13 оранжевый, 14-29 жёлтый, ≥30 зелёный, null → ∞
   const renderOOS = (days: number | null) => {
     if (days === null) {
       return <Tag color="green">∞</Tag>;
@@ -142,6 +143,7 @@ const LocatorDashboard: React.FC = () => {
     return <Tag color={color}>{days.toFixed(1)} дн.</Tag>;
   };
 
+  // Колонки для артикулов
   const articleColumns: ColumnsType<ArticleInfo> = [
     {
       title: 'Артикул продавца',
@@ -220,20 +222,19 @@ const LocatorDashboard: React.FC = () => {
     { title: 'Заказы', dataIndex: 'ordersTotal', key: 'ordersTotal', width: 100, render: (v) => v.toLocaleString() },
     { title: 'Выкуп (%)', dataIndex: 'buyoutPercent', key: 'buyoutPercent', width: 100, render: (v) => v !== null ? `${v}%` : 'Н/Д' },
     { title: 'Остаток', dataIndex: 'stockWB', key: 'stockWB', width: 100, render: (v) => v?.toLocaleString() || 'Н/Д' },
-    { title: 'Days to OOS', dataIndex: 'daysToOOS', key: 'daysToOOS', width: 110, render: (v) => renderOOS(v) },
     {
       title: 'В пути',
       dataIndex: 'inTransit',
       key: 'inTransit',
       width: 100,
-      render: (inTransit: InTransitData | undefined) => {
+      render: (inTransit: any) => {
         if (!inTransit || inTransit.totalQty === 0) {
-          return <Text type="secondary">—</Text>;
+          return <Typography.Text type="secondary">—</Typography.Text>;
         }
         return (
           <Tooltip title={
             <div>
-              {inTransit.batches.map((batch, idx) => (
+              {inTransit.batches.map((batch: any, idx: number) => (
                 <div key={idx}>{batch.warehouse}: {batch.quantity} шт. (ETA: {batch.eta})</div>
               ))}
             </div>
@@ -242,7 +243,8 @@ const LocatorDashboard: React.FC = () => {
           </Tooltip>
         );
       }
-    }
+    },
+    { title: 'Days to OOS', dataIndex: 'daysToOOS', key: 'daysToOOS', width: 110, render: (v) => renderOOS(v) }
   ];
 
   const regionColumns: ColumnsType<RegionDetail> = [
@@ -290,7 +292,7 @@ const LocatorDashboard: React.FC = () => {
           <Col span={6}>
             <Card>
               <Statistic title="Период" value={data.periodDays || 0} suffix="дн." />
-              <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
                 {data.dateFrom && data.dateTo ? `${data.dateFrom} — ${data.dateTo}` : '—'}
               </Text>
             </Card>
@@ -314,12 +316,18 @@ const LocatorDashboard: React.FC = () => {
             />
             <Text type="secondary" style={{ fontSize: 12 }}>(указывается при загрузке GEO отчёта)</Text>
           </Space>
-          <Space wrap>
+          <Space>
             <Upload accept=".xlsx" showUploadList={false} beforeUpload={handleUploadGeo}>
               <Button type="primary" icon={<FileExcelOutlined />} loading={uploadingGeo}>Загрузить GEO отчёт</Button>
             </Upload>
             <Upload accept=".xlsx" showUploadList={false} beforeUpload={handleUploadStocks}>
+            <Upload accept=".xlsx" showUploadList={false} beforeUpload={handleUploadInTransit}>
+              <Button icon={<UploadOutlined />} loading={uploadingInTransit}>Загрузить поставки в пути</Button>
+            </Upload>
               <Button icon={<UploadOutlined />} loading={uploadingStocks}>Загрузить Stocks отчёт</Button>
+            <Upload accept=".xlsx" showUploadList={false} beforeUpload={handleUploadInTransit}>
+              <Button icon={<UploadOutlined />} loading={uploadingInTransit}>Загрузить поставки в пути</Button>
+            </Upload>
             </Upload>
             <Upload accept=".xlsx" showUploadList={false} beforeUpload={handleUploadInTransit}>
               <Button icon={<UploadOutlined />} loading={uploadingInTransit}>Загрузить поставки в пути</Button>

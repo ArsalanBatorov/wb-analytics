@@ -3,10 +3,15 @@ Wildberries API client — read-only operations.
 """
 import asyncio
 import logging
+import os
 from datetime import date, timedelta
 from typing import Optional, List
 
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path='/root/wb-analytics/.env')
+SOCKS5_PROXY = os.getenv("SOCKS5_PROXY", "")
 
 logger = logging.getLogger(__name__)
 
@@ -25,30 +30,28 @@ class WBClient:
 
     async def _ensure_clients(self):
         h = self._headers()
+        kwargs = {"headers": h, "timeout": 60}
+        if SOCKS5_PROXY:
+            kwargs["proxy"] = SOCKS5_PROXY
         if not self.analytics_client or self.analytics_client.is_closed:
             self.analytics_client = httpx.AsyncClient(
-                base_url="https://seller-analytics-api.wildberries.ru",
-                headers=h, timeout=30
+                base_url="https://seller-analytics-api.wildberries.ru", **kwargs
             )
         if not self.adv_client or self.adv_client.is_closed:
             self.adv_client = httpx.AsyncClient(
-                base_url="https://advert-api.wildberries.ru",
-                headers=h, timeout=30
+                base_url="https://advert-api.wildberries.ru", **kwargs
             )
         if not self.common_client or self.common_client.is_closed:
             self.common_client = httpx.AsyncClient(
-                base_url="https://common-api.wildberries.ru",
-                headers=h, timeout=30
+                base_url="https://common-api.wildberries.ru", **kwargs
             )
         if not self.stats_client or self.stats_client.is_closed:
             self.stats_client = httpx.AsyncClient(
-                base_url="https://statistics-api.wildberries.ru",
-                headers=h, timeout=30
+                base_url="https://statistics-api.wildberries.ru", **kwargs
             )
         if not self.content_client or self.content_client.is_closed:
             self.content_client = httpx.AsyncClient(
-                base_url="https://content-api.wildberries.ru",
-                headers=h, timeout=30
+                base_url="https://content-api.wildberries.ru", **kwargs
             )
 
     def set_token(self, token: str):

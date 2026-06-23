@@ -2,7 +2,7 @@ from fastapi import APIRouter, Query, UploadFile, File, HTTPException
 from typing import Optional
 from app.services.locator.locator_stocks import get_stock_summary, get_sales_funnel_summary
 from app.services.locator.locator_calc import calc_article_dl, calc_irp_il
-from app.services.locator.locator_geo_report import parse_geo_report, get_geo_size_dl, get_geo_size_dl_list, get_geo_dl
+from app.services.locator.locator_geo_report import parse_geo_report, get_geo_size_dl, get_geo_size_dl_list
 from app.services.locator.locator_stocks_report import init_stocks_report_db, parse_stocks_report, save_stocks_report
 from collections import defaultdict
 
@@ -169,18 +169,5 @@ async def import_stocks(file: UploadFile = File(...)):
 
 @router.get("/dl-real")
 async def locator_dl_real(force_refresh: bool = Query(False)):
-    data = get_geo_dl()
-    return data
-
-# Добавлено для этапа 2 - товары в пути
-from app.services.locator.locator_in_transit_report import parse_in_transit_excel, save_in_transit_to_db, get_in_transit_data
-
-@router.post("/import-in-transit")
-async def import_in_transit(file: UploadFile = File(...)):
-    try:
-        contents = await file.read()
-        records = parse_in_transit_excel(contents)
-        save_in_transit_to_db(records)
-        return {"status": "ok", "records": len(records)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    rows = get_geo_size_dl_list()
+    return {"articles": rows}
