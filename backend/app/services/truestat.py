@@ -17,12 +17,12 @@ def _f(v) -> float:
     return float(v)
 
 
-async def _load_tax_rate(db: AsyncSession) -> float:
+async def _load_tax_rates(db: AsyncSession) -> tuple[float, float]:
     r = await db.execute(
-        text("SELECT value FROM app_settings WHERE key = 'tax_rate'")
+        text("SELECT key, value FROM app_settings WHERE key IN ('tax_rate', 'vat_rate')")
     )
-    v = r.scalar_one_or_none()
-    return float(v) if v else 7.0
+    rows = {row.key: float(row.value) for row in r.mappings().all()}
+    return rows.get("tax_rate", 7.0), rows.get("vat_rate", 0.0)
 
 
 async def _period_data(db: AsyncSession, dfrom: date, dto: date) -> dict:
@@ -94,7 +94,7 @@ async def _period_data(db: AsyncSession, dfrom: date, dto: date) -> dict:
     return data
 
 
-def _calc_metrics(d: dict, tax_rate: float, prev: Optional[dict] = None, period_days: int = 7) -> dict:
+def _calc_metrics(d: dict, tax_rate: float, vat_rate: float = 0.0, prev: Optional[dict] = None, period_days: int = 7) -> dict:
     sales_rev = d["sales_revenue"] - d["returns_revenue"]
     sales_cnt = d["sales_count"] - d["returns_count"]
     ret_cnt = d["returns_count"]
@@ -110,7 +110,9 @@ def _calc_metrics(d: dict, tax_rate: float, prev: Optional[dict] = None, period_
     drr = (ad_spend / sales_rev * 100) if sales_rev > 0 else 0.0
     drr_orders = (ad_spend / order_sum * 100) if order_sum > 0 else 0.0
     buyout_rate = (d["sales_count"] / d["order_count"] * 100) if d["order_count"] > 0 else 0.0
-    tax_est = max(0, margin) * tax_rate / 100.0
+    usn_tax = max(0, margin) * tax_rate / 100.0
+    vat = sales_rev * vat_rate / 100.0
+    tax_est = usn_tax + vat
     avg_sale_price = (sales_rev / sales_cnt) if sales_cnt > 0 else 0.0
     avg_logistics_per_item = (d["logistics"] / sales_cnt) if sales_cnt > 0 else 0.0
 
@@ -159,7 +161,7 @@ def _calc_metrics(d: dict, tax_rate: float, prev: Optional[dict] = None, period_
     }
 
     if prev:
-        prev_metrics = _calc_metrics(prev, tax_rate)
+        prev_metrics = _calc_metrics(prev, tax_rate, vat_rate)
         delta_abs = {}
         delta_pct = {}
         for key in result:
@@ -187,11 +189,11 @@ async def calc_dashboard(
 
     curr_raw = await _period_data(db, date_from, date_to)
     prev_raw = await _period_data(db, prev_from, prev_to)
-    tax_rate = await _load_tax_rate(db)
+    tax_rate, vat_rate = await _load_tax_rates(db)
 
-    curr = _calc_metrics(curr_raw, tax_rate, period_days=period_len)
-    prev = _calc_metrics(prev_raw, tax_rate, period_days=period_len)
-    full = _calc_metrics(curr_raw, tax_rate, prev_raw, period_days=period_len)
+    curr = _calc_metrics(curr_raw, tax_rate, vat_rate, period_days=period_len)
+    prev = _calc_metrics(prev_raw, tax_rate, vat_rate, period_days=period_len)
+    full = _calc_metrics(curr_raw, tax_rate, vat_rate, prev_raw, period_days=period_len)
 
     pds_available = curr_raw["order_count"] > 0 or curr_raw["ad_spend"] > 0
 
