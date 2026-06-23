@@ -27,7 +27,7 @@ async def _load_tax_rate(db: AsyncSession) -> float:
 
 async def _period_data(db: AsyncSession, dfrom: date, dto: date) -> dict:
     sql = """
-    WITH rds AS (
+    WITH     rds AS (
         SELECT
             COALESCE(SUM(sales_count), 0) AS sales_count,
             COALESCE(SUM(sales_revenue), 0) AS sales_revenue,
@@ -42,7 +42,8 @@ async def _period_data(db: AsyncSession, dfrom: date, dto: date) -> dict:
             COALESCE(SUM(acquiring_sales + acquiring_returns), 0) AS acquiring,
             COALESCE(SUM(commission_sales - commission_returns), 0) AS commission,
             COALESCE(SUM(net_payout), 0) AS net_payout,
-            COALESCE(SUM(cost_price_estimate), 0) AS cogs
+            COALESCE(SUM(cost_price_estimate), 0) AS cogs,
+            COALESCE(SUM(profit_estimate), 0) AS real_profit
         FROM realization_daily_stats
         WHERE stat_date BETWEEN :dfrom AND :dto
     ),
@@ -85,6 +86,11 @@ async def _period_data(db: AsyncSession, dfrom: date, dto: date) -> dict:
     avg_price = data["sales_revenue"] / data["sales_count"] if data["sales_count"] > 0 else avg_cost * 2.5
     data["cap_retail"] = data["stock_qty"] * avg_price if avg_price > 0 else data["cap_cogs"] * 2.5
 
+    data["avg_price_fallback"] = data["avg_price_before_spp"] == 0
+    if data["avg_price_before_spp"] == 0:
+        ap = await db.execute(text("SELECT COALESCE(AVG(avg_price_api), 0) FROM products WHERE avg_price_api > 0"))
+        data["avg_price_before_spp"] = _f(ap.scalar())
+
     return data
 
 
@@ -109,7 +115,12 @@ def _calc_metrics(d: dict, tax_rate: float, prev: Optional[dict] = None, period_
     avg_logistics_per_item = (d["logistics"] / sales_cnt) if sales_cnt > 0 else 0.0
 
     roi_inv = d["roi_investment"]
-    roi_val = (d["roi_margin"] / roi_inv * 100) if roi_inv > 0 else 0.0
+    if roi_inv > 0:
+        roi_val = (d["roi_margin"] / roi_inv * 100)
+    elif d.get("real_profit", 0) > 0 and cogs > 0:
+        roi_val = (d["real_profit"] / cogs * 100)
+    else:
+        roi_val = 0.0
 
     daily_sales_rate = sales_cnt / period_days if period_days > 0 else 0
     turnover_sales = (stock_qty / daily_sales_rate) if daily_sales_rate > 0 else 0.0
@@ -135,7 +146,7 @@ def _calc_metrics(d: dict, tax_rate: float, prev: Optional[dict] = None, period_
         "operational_expenses": {"value": 0.0, "value_pct": 0.0},
         "taxes": {"value": round(tax_est, 2), "value_pct": round(pct(tax_est), 2)},
         "commission": {"value": round(d["commission"], 2), "value_pct": round(pct(d["commission"]), 2)},
-        "avg_price_before_discount": {"value": round(d["avg_price_before_spp"], 2)},
+        "avg_price_before_discount": {"value": round(d["avg_price_before_spp"], 2) if d.get("avg_price_before_spp", 0) > 0 else round(avg_sale_price, 2)},
         "capitalization_cogs": {"value": round(d["cap_cogs"], 2)},
         "capitalization_retail": {"value": round(d["cap_retail"], 2)},
         "penalty": {"value": round(d["penalty"], 2), "value_pct": round(pct(d["penalty"]), 2)},
@@ -182,6 +193,8 @@ async def calc_dashboard(
     prev = _calc_metrics(prev_raw, tax_rate, period_days=period_len)
     full = _calc_metrics(curr_raw, tax_rate, prev_raw, period_days=period_len)
 
+    pds_available = curr_raw["order_count"] > 0 or curr_raw["ad_spend"] > 0
+
     return {
         "period": {
             "date_from": date_from.isoformat(),
@@ -192,6 +205,11 @@ async def calc_dashboard(
             "date_from": prev_from.isoformat(),
             "date_to": prev_to.isoformat(),
             "days": period_len,
+        },
+        "data_warnings": {
+            "orders_unavailable": not pds_available,
+            "ad_spend_unavailable": not pds_available,
+            "avg_price_discount_fallback": curr_raw.get("avg_price_fallback", False),
         },
         "metrics": full,
     }

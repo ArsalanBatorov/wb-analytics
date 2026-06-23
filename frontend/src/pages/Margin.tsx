@@ -1,9 +1,9 @@
 import { useEffect, useState, useMemo } from "react";
 import {
-  Card, Row, Col, DatePicker, Radio, Spin, Typography, Space, Tag,
+  Card, Row, Col, DatePicker, Radio, Spin, Typography, Space, Tag, Alert,
 } from "antd";
 import {
-  CaretUpOutlined, CaretDownOutlined, MinusOutlined,
+  CaretUpOutlined, CaretDownOutlined, MinusOutlined, WarningOutlined,
 } from "@ant-design/icons";
 import dayjs, { Dayjs } from "dayjs";
 import { fetchTruestatDashboard, TruestatDashboard } from "../api/client";
@@ -164,6 +164,24 @@ export default function Margin() {
           )}
         </Space>
       </Card>
+
+      {data?.data_warnings?.orders_unavailable && (
+        <Alert
+          type="warning"
+          showIcon
+          icon={<WarningOutlined />}
+          message="Данные по заказам и рекламе за этот период ещё загружаются (задержка WB API 1-3 дня). Показатели (Заказы, Реклама, ROI) временно = 0."
+          style={{ marginBottom: 12, fontSize: 13 }}
+        />
+      )}
+      {data?.data_warnings?.avg_price_discount_fallback && (
+        <Alert
+          type="info"
+          showIcon
+          message="Средняя цена до скидок МП — оценка из карточки товара"
+          style={{ marginBottom: 12, fontSize: 13 }}
+        />
+      )}
 
       <Spin spinning={loading}>
         {rows.map((row, ri) => (

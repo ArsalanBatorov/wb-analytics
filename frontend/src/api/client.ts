@@ -248,9 +248,16 @@ export interface TruestatMetricValue {
   value_count?: number;
 }
 
+export interface TruestatDataWarnings {
+  orders_unavailable?: boolean;
+  ad_spend_unavailable?: boolean;
+  avg_price_discount_fallback?: boolean;
+}
+
 export interface TruestatDashboard {
   period: { date_from: string; date_to: string; days: number };
   prev_period: { date_from: string; date_to: string; days: number };
+  data_warnings?: TruestatDataWarnings;
   metrics: Record<string, TruestatMetricValue> & {
     _delta_abs: Record<string, number>;
     _delta_pct: Record<string, number>;
