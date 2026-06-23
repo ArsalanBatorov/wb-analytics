@@ -197,7 +197,8 @@ async def _import_pds(db: AsyncSession, rows: list[dict]) -> dict:
             imported += 1
 
     await db.commit()
-    return {"imported_pds": imported}
+    recalc = await _recalc_roi(db)
+    return {"imported_pds": imported, "recalc_roi": recalc}
 
 
 # ======================================================================
@@ -338,6 +339,224 @@ async def _import_realization(db: AsyncSession, rows: list[dict]) -> dict:
 
 
 # ======================================================================
+# Custom format: two-sheet file (vendor code based)
+# Sheet 1: sales summary by vendor code + date
+# Sheet 2: ad spend by vendor code + date
+# ======================================================================
+
+REPORT_HEADERS_SHEET1 = {"артикул продавца", "выкупили, шт.", "заказано, шт."}
+REPORT_HEADERS_SHEET2 = {"артикул", "расход, \u20bd", "день"}
+
+
+async def _detect_and_import_report(db: AsyncSession, data: bytes) -> dict:
+    try:
+        import openpyxl
+    except ImportError:
+        raise HTTPException(500, "openpyxl not installed")
+
+    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    if len(wb.sheetnames) < 1:
+        raise HTTPException(400, "Empty workbook")
+
+    ws1 = wb[wb.sheetnames[0]]
+    h1 = [str(h).strip().lower() if h else "" for h in next(ws1.iter_rows(values_only=True))]
+    h1_set = set(h1)
+
+    if not (REPORT_HEADERS_SHEET1 & h1_set):
+        return None  # not our format
+
+    # Map sheet 1 columns
+    col_idx = {v: i for i, v in enumerate(h1)}
+    date_col = col_idx.get("", 2)  # date is in unnamed column
+    vc_col = col_idx.get("артикул продавца", 3)
+    buyout_col = col_idx.get("выкупили, шт.", 4)
+    payout_col = col_idx.get("к перечислению за товар, руб.", 5)
+    order_col = col_idx.get("заказано, шт.", 6)
+    order_sum_col = col_idx.get("сумма заказов минус комиссия wb, руб.", 7)
+
+    # Load vendor_code → nm_id mapping
+    vc_rows = await db.execute(text("SELECT vendor_code, nm_id FROM products"))
+    vc_map = {str(r[0]).strip().lower(): r[1] for r in vc_rows.fetchall() if r[0]}
+
+    # Parse sheet 1
+    sheet1_data = {}
+    for row in ws1.iter_rows(values_only=True):
+        vals = list(row)
+        if not vals or not vals[vc_col]:
+            continue
+        vc = str(vals[vc_col]).strip()
+        vc_lower = vc.lower()
+        nm_id = vc_map.get(vc_lower)
+        if not nm_id:
+            continue
+
+        raw_date = vals[date_col]
+        dt = None
+        if isinstance(raw_date, datetime):
+            dt = raw_date.date()
+        elif isinstance(raw_date, date):
+            dt = raw_date
+        elif isinstance(raw_date, str):
+            try:
+                dt = datetime.strptime(raw_date[:10], "%Y-%m-%d").date()
+            except ValueError:
+                continue
+        if dt is None:
+            continue
+
+        key = (nm_id, dt)
+        item = sheet1_data.setdefault(key, {
+            "order_count": 0, "order_sum": 0.0,
+            "buyout_count": 0, "buyout_sum": 0.0,
+        })
+        item["order_count"] += _to_int(vals[order_col]) if vals[order_col] else 0
+        item["order_sum"] += _to_float(vals[order_sum_col]) if order_sum_col < len(vals) and vals[order_sum_col] else 0
+        item["buyout_count"] += _to_int(vals[buyout_col]) if vals[buyout_col] else 0
+        item["buyout_sum"] += _to_float(vals[payout_col]) if vals[payout_col] else 0
+
+    # Try sheet 2 (ad spend)
+    ws2 = wb[wb.sheetnames[1]] if len(wb.sheetnames) > 1 else None
+    ad_data = {}
+    if ws2:
+        h2_raw = next(ws2.iter_rows(values_only=True))
+        h2 = [str(h).strip().lower() if h else "" for h in h2_raw]
+        has_ad = "расход" in str(h2) or "расход без бонусов" in str(h2)
+        if has_ad:
+            vc2_col = next((i for i, h in enumerate(h2) if h == "артикул"), 0)
+            date2_col = next((i for i, h in enumerate(h2) if "день" in h or "дата" in h), 4)
+            spend_col = next((i for i, h in enumerate(h2) if "расход" in h and "руб" in h), 12)
+            if spend_col >= len(h2):
+                spend_col = next((i for i, h in enumerate(h2) if "расход" in h), 5)
+
+            for row in ws2.iter_rows(values_only=True):
+                vals = list(row)
+                if not vals or not vals[vc2_col]:
+                    continue
+                vc = str(vals[vc2_col]).strip().lower()
+                nm_id = vc_map.get(vc)
+                if not nm_id:
+                    continue
+
+                raw_date = vals[date2_col]
+                dt = None
+                if isinstance(raw_date, datetime):
+                    dt = raw_date.date()
+                elif isinstance(raw_date, date):
+                    dt = raw_date
+                elif isinstance(raw_date, str):
+                    try:
+                        dt = datetime.strptime(raw_date[:10], "%Y-%m-%d").date()
+                    except ValueError:
+                        continue
+                if dt is None:
+                    continue
+
+                key = (nm_id, dt)
+                spend = _to_float(vals[spend_col]) if spend_col < len(vals) and vals[spend_col] else 0
+                ad_data[key] = ad_data.get(key, 0) + spend
+
+    # Merge ad data
+    for key, spend in ad_data.items():
+        if key in sheet1_data:
+            sheet1_data[key]["ad_spend"] = sheet1_data[key].get("ad_spend", 0) + spend
+        else:
+            sheet1_data[key] = {
+                "order_count": 0, "order_sum": 0.0,
+                "buyout_count": 0, "buyout_sum": 0.0,
+                "ad_spend": spend,
+            }
+
+    # Import
+    imported = 0
+    upsert = PDS_UPSERT  # same upsert SQL
+    for (nm_id, dt), item in sheet1_data.items():
+        params = {
+            "nm_id": nm_id, "date": dt,
+            "open_count": 0, "cart_count": 0,
+            "order_count": item["order_count"],
+            "order_sum": item["order_sum"],
+            "buyout_count": item["buyout_count"],
+            "buyout_sum": item["buyout_sum"],
+            "buyout_percent": 0,
+            "cancel_count": 0, "cancel_sum": 0,
+            "ad_spend": item.get("ad_spend", 0),
+            "avg_price_before_spp": 0,
+            "avg_price_after_spp": 0,
+            "avg_spp_pct": 0,
+        }
+        if params["order_count"] > 0 or params["ad_spend"] > 0:
+            await db.execute(upsert, params)
+            imported += 1
+
+    await db.commit()
+
+    # Auto-recalculate ROI after import
+    recalc_rows = await _recalc_roi(db)
+    return {"imported": imported, "ad_rows": len(ad_data), "recalc_roi": recalc_rows}
+
+
+# ======================================================================
+# ROI recalculation after import
+# ======================================================================
+
+async def _recalc_roi(db: AsyncSession, since_date: date = date(2026, 1, 1)) -> int:
+    from app.services.logistics_calc import calc_metrics
+
+    def _f(v):
+        if isinstance(v, Decimal): return float(v)
+        return float(v or 0)
+
+    r = await db.execute(text("""
+        SELECT pds.id, pds.order_count, pds.order_sum,
+               pds.buyout_count, pds.buyout_sum, pds.buyout_percent,
+               pds.ad_spend, p.cost_price, p.volume_liters,
+               p.warehouse_coef, p.buyout_percent as product_bp
+        FROM product_daily_stats pds
+        JOIN products p ON p.nm_id = p.nm_id
+        WHERE pds.date >= :since AND pds.order_count > 0
+    """), {"since": since_date})
+
+    updated = 0
+    for row in r.fetchall():
+        bp = _f(row.product_bp) or _f(row.buyout_percent) or 20
+        if bp < 5: bp = 20
+        metrics = calc_metrics(
+            order_count=int(row.order_count),
+            order_sum=_f(row.order_sum),
+            buyout_count=int(row.buyout_count),
+            buyout_sum=_f(row.buyout_sum),
+            buyout_percent=bp,
+            returns_count=0,
+            cost_price=_f(row.cost_price),
+            volume_liters=_f(row.volume_liters),
+            first_liter_rate=82.8, extra_liter_rate=25.2,
+            warehouse_coef=_f(row.warehouse_coef) or 1.0,
+            ktr=1.0, irp=0, commission_pct=3.5,
+            seller_coef=0.647, acquiring_pct=2.6,
+            logistics_multiplier=1.85,
+            ad_spend=_f(row.ad_spend),
+            tax_rate=7.0, vat_rate=0,
+            stock_quantity=0,
+        )
+        await db.execute(text("""
+            UPDATE product_daily_stats SET
+                margin_clean = :mc, margin_clean_pct = :mcp,
+                roi = :r, cost_price_total = :cpt
+            WHERE id = :id
+        """), {
+            "mc": round(metrics.get("margin_clean", 0), 2),
+            "mcp": round(metrics.get("margin_clean_pct", 0), 2),
+            "r": round(metrics.get("roi", 0), 2),
+            "cpt": round(metrics.get("cost_price_total", 0), 2),
+            "id": row.id,
+        })
+        updated += 1
+
+    await db.commit()
+    return updated
+
+
+# ======================================================================
 # Excel parser
 # ======================================================================
 
@@ -393,6 +612,11 @@ async def upload_stats(file: UploadFile = File(...), db: AsyncSession = Depends(
     data = await file.read()
     if len(data) > 50 * 1024 * 1024:
         raise HTTPException(400, "File too large (max 50MB)")
+
+    # Try custom report format (vendor code based, two sheets)
+    custom = await _detect_and_import_report(db, data)
+    if custom:
+        return {"status": "ok", "file": file.filename, "format": "custom_report", **custom}
 
     headers, rows = await _read_excel(data)
     dicts, cols_found = _excel_to_dicts(headers, rows, PDS_COLUMN_MAP)
