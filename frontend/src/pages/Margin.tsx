@@ -25,7 +25,7 @@ interface MetricDef {
 }
 
 const METRICS: MetricDef[] = [
-  { key: "margin", title: "Прибыль", subtitle: "Марж. без опер. расх.", format: "money_pct", good_when: "up" },
+  { key: "margin", title: "Прибыль", subtitle: "Чист. маржа", format: "money_pct", good_when: "up" },
   { key: "orders", title: "Заказы", format: "money_count", good_when: "up" },
   { key: "sales", title: "Продажи", format: "money_count", good_when: "up" },
   { key: "ad_spend", title: "Реклама / ДРР", format: "money_pct", good_when: "down" },
@@ -36,7 +36,6 @@ const METRICS: MetricDef[] = [
   { key: "penalty", title: "Штрафы", format: "money_pct_revenue", good_when: "down" },
   { key: "roi", title: "ROI", format: "pct", good_when: "up" },
   { key: "cogs", title: "Себестоимость продаж", format: "money_pct_revenue", good_when: "down" },
-  { key: "operational_expenses", title: "Операционные расходы", format: "money_pct_revenue", good_when: "down" },
   { key: "taxes", title: "Налоги", format: "money_pct_revenue", good_when: "down" },
   { key: "commission", title: "Комиссия", format: "money_pct_revenue", good_when: "down" },
   { key: "avg_price_before_discount", title: "Сред. цена до скидок МП", format: "money", good_when: "up" },
