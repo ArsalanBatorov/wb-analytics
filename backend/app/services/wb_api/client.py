@@ -10,6 +10,8 @@ from typing import Optional, List
 import httpx
 from dotenv import load_dotenv
 
+from app.services.wb_api.rate_limiter import TokenBucketLimiter
+
 load_dotenv(dotenv_path='/root/wb-analytics/.env')
 SOCKS5_PROXY = os.getenv("SOCKS5_PROXY", "")
 
@@ -24,6 +26,9 @@ class WBClient:
         self.common_client: Optional[httpx.AsyncClient] = None
         self.stats_client: Optional[httpx.AsyncClient] = None
         self.content_client: Optional[httpx.AsyncClient] = None
+        self._limiters = {
+            "campaigns": TokenBucketLimiter(rate=1.0, burst=3),
+        }
 
     def _headers(self):
         return {"Authorization": self.token}
@@ -33,35 +38,59 @@ class WBClient:
         kwargs = {"headers": h, "timeout": 60}
         if SOCKS5_PROXY:
             kwargs["proxy"] = SOCKS5_PROXY
-        if not self.analytics_client or self.analytics_client.is_closed:
+        if not self.analytics_client:
             self.analytics_client = httpx.AsyncClient(
                 base_url="https://seller-analytics-api.wildberries.ru", **kwargs
             )
-        if not self.adv_client or self.adv_client.is_closed:
+        if not self.adv_client:
             self.adv_client = httpx.AsyncClient(
                 base_url="https://advert-api.wildberries.ru", **kwargs
             )
-        if not self.common_client or self.common_client.is_closed:
+        if not self.common_client:
             self.common_client = httpx.AsyncClient(
                 base_url="https://common-api.wildberries.ru", **kwargs
             )
-        if not self.stats_client or self.stats_client.is_closed:
+        if not self.stats_client:
             self.stats_client = httpx.AsyncClient(
                 base_url="https://statistics-api.wildberries.ru", **kwargs
             )
-        if not self.content_client or self.content_client.is_closed:
+        if not self.content_client:
             self.content_client = httpx.AsyncClient(
                 base_url="https://content-api.wildberries.ru", **kwargs
             )
 
     def set_token(self, token: str):
         self.token = token
-        # Reset clients so they pick up new token
         for attr in ['analytics_client', 'adv_client', 'common_client', 'stats_client', 'content_client']:
-            c = getattr(self, attr, None)
-            if c and not c.is_closed:
-                asyncio.create_task(c.aclose())
             setattr(self, attr, None)
+
+    def _client_for_path(self, path: str) -> httpx.AsyncClient:
+        if path.startswith("/content"):
+            return self.content_client
+        if path.startswith("/adv") or path.startswith("/advert"):
+            return self.adv_client
+        if path.startswith("/api/analytics"):
+            return self.analytics_client
+        if path.startswith("/api/v") or path.startswith("/api/v1/tariffs"):
+            return self.common_client
+        return self.stats_client
+
+    async def _request(self, method: str, path: str, **kwargs) -> Optional[httpx.Response]:
+        await self._ensure_clients()
+        client = self._client_for_path(path)
+        limiter_key = kwargs.pop("limiter_key", None)
+        params = kwargs.pop("params", None)
+        json_body = kwargs.pop("json", None)
+
+        if limiter_key and limiter_key in self._limiters:
+            await self._limiters[limiter_key].acquire()
+
+        try:
+            r = await client.request(method, path, params=params, json=json_body)
+            return r
+        except Exception as e:
+            logger.error(f"Request error {method} {path}: {e}")
+            return None
 
     # === Content API ===
 
@@ -145,6 +174,43 @@ class WBClient:
             return r.json()
         logger.error(f"Promotion count error {r.status_code}: {r.text[:300]}")
         return None
+
+    async def get_adverts(self):
+        """Get list of all ad campaigns (adverts)."""
+        await self._ensure_clients()
+        r = await self.adv_client.get("/adv/v1/adverts")
+        if r.status_code == 200:
+            return r.json()
+        # Fallback: try promotion/count → fullstats to build campaign list
+        logger.info(f"Adverts endpoint returned {r.status_code}, trying fallback...")
+        count_resp = await self.adv_client.get("/adv/v1/promotion/count")
+        if count_resp.status_code == 200:
+            data = count_resp.json()
+            adverts = []
+            for group in data if isinstance(data, list) else data.get("groups", []):
+                for adv in group.get("adverts", []) if isinstance(group, dict) else []:
+                    adverts.append({
+                        "id": adv.get("id"),
+                        "status": adv.get("status", 0),
+                        "settings": {"name": adv.get("name", ""), "payment_type": adv.get("type", "")},
+                        "bid_type": adv.get("bidType", ""),
+                        "nm_settings": [],
+                    })
+            if adverts:
+                logger.info(f"Built {len(adverts)} adverts from promotion/count fallback")
+                return adverts
+        logger.warning(f"No adverts available (primary 404, fallback {count_resp.status_code})")
+        return None
+
+    async def start_campaign(self, campaign_id: int) -> bool:
+        await self._ensure_clients()
+        r = await self.adv_client.post(f"/adv/v1/promotion/{campaign_id}/start")
+        return r.status_code == 200
+
+    async def pause_campaign(self, campaign_id: int) -> bool:
+        await self._ensure_clients()
+        r = await self.adv_client.post(f"/adv/v1/promotion/{campaign_id}/pause")
+        return r.status_code == 200
 
     async def get_fullstats(self, campaign_id: int, date_from: str, date_to: str):
         """Get full advertising stats for a campaign."""
