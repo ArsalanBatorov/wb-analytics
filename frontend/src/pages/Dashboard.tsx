@@ -42,6 +42,7 @@ interface FinDaily {
 
 interface FinProduct {
   nm_id: number; vendor_code: string; title: string; brand: string;
+  buyout_percent: number;
   sales_count: number; sales_revenue: number;
   returns_count: number; returns_revenue: number;
   net_payout: number; profit_estimate: number;

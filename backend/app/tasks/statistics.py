@@ -334,6 +334,7 @@ async def _daily_sync():
         sync_ad_stats,
         sync_realization_daily,
         sync_stocks,
+        sync_buyout_percent,
     )
 
     today = date.today()
@@ -370,5 +371,11 @@ async def _daily_sync():
         await sync_stocks()
     except Exception as e:
         print(f"[DAILY_SYNC] Stocks error: {e}")
+
+    try:
+        print("[DAILY_SYNC] 6/6 Buyout %...")
+        await sync_buyout_percent()
+    except Exception as e:
+        print(f"[DAILY_SYNC] Buyout error: {e}")
 
     print("[DAILY_SYNC] Complete!")

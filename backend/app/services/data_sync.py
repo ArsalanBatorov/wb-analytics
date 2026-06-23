@@ -4,9 +4,11 @@ Pulls data from WB APIs, calculates metrics, stores in DB.
 """
 import asyncio
 import logging
+import os
 from datetime import date, timedelta, datetime
 from typing import Optional
 
+import httpx
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -520,6 +522,10 @@ async def sync_daily_stats(days: int = 7, date_from: date | None = None, date_to
                         stock_quantity=stock_qty,
                     )
 
+                # Calculate net order_sum (gross minus WB commission)
+                net_comm_pct = comm_map_local.get(product.subject_name, commission_default) if product else commission_default
+                net_order_sum = round(order_sum * (1 - net_comm_pct / 100), 2) if net_comm_pct > 0 else order_sum
+
                 upsert_sql = text("""
                     INSERT INTO product_daily_stats (
                         nm_id, date, open_count, cart_count,
@@ -542,7 +548,7 @@ async def sync_daily_stats(days: int = 7, date_from: date | None = None, date_to
                         open_count = CASE WHEN EXCLUDED.open_count > 0 THEN EXCLUDED.open_count ELSE product_daily_stats.open_count END,
                         cart_count = CASE WHEN EXCLUDED.cart_count > 0 THEN EXCLUDED.cart_count ELSE product_daily_stats.cart_count END,
                         order_count = CASE WHEN EXCLUDED.order_count > 0 THEN EXCLUDED.order_count ELSE product_daily_stats.order_count END,
-                        order_sum = CASE WHEN EXCLUDED.order_sum > 0 THEN EXCLUDED.order_sum ELSE product_daily_stats.order_sum END,
+                        order_sum = CASE WHEN product_daily_stats.order_sum > 0 THEN product_daily_stats.order_sum ELSE EXCLUDED.order_sum END,
                         buyout_count = CASE WHEN EXCLUDED.buyout_count > 0 THEN EXCLUDED.buyout_count ELSE product_daily_stats.buyout_count END,
                         buyout_sum = CASE WHEN EXCLUDED.buyout_sum > 0 THEN EXCLUDED.buyout_sum ELSE product_daily_stats.buyout_sum END,
                         buyout_percent = CASE WHEN EXCLUDED.buyout_percent > 0 THEN EXCLUDED.buyout_percent ELSE product_daily_stats.buyout_percent END,
@@ -564,7 +570,7 @@ async def sync_daily_stats(days: int = 7, date_from: date | None = None, date_to
                 await db.execute(upsert_sql, {
                     "nm_id": nm_id, "dt": dt,
                     "open_count": opens, "cart_count": carts,
-                    "order_count": orders, "order_sum": order_sum,
+                    "order_count": orders, "order_sum": net_order_sum,
                     "buyout_count": buyouts, "buyout_sum": buyout_sum, "buyout_percent": buyout_pct,
                     "cancel_count": cancels, "cancel_sum": cancel_sum,
                     "delivery_cost": metrics.get("delivery_cost", 0),
@@ -860,6 +866,7 @@ async def sync_realization_daily(date_from: date, date_to: date):
 
             op = row.get("supplier_oper_name", "") or ""
             qty = int(row.get("quantity") or 0)
+            retail_amount = _to_float(row.get("retail_amount"), 0.0)
             retail_with_disc = _to_float(row.get("retail_price_withdisc_rub"), 0.0)
             delivery_rub = _to_float(row.get("delivery_rub"), 0.0)
             rebill_logistic_cost = _to_float(row.get("rebill_logistic_cost"), 0.0)
@@ -874,13 +881,13 @@ async def sync_realization_daily(date_from: date, date_to: date):
 
             if op == "Продажа":
                 item["sales_count"] += qty or 1
-                item["sales_revenue"] += retail_with_disc
+                item["sales_revenue"] += retail_amount
                 item["acquiring_sales"] += acquiring_fee
                 item["commission_sales"] += commission
                 item["payout_sales"] += payout
             elif op == "Возврат":
                 item["returns_count"] += qty or 1
-                item["returns_revenue"] += retail_with_disc
+                item["returns_revenue"] += retail_amount
                 item["acquiring_returns"] += acquiring_fee
                 item["commission_returns"] += commission
                 item["payout_returns"] += payout
@@ -980,7 +987,6 @@ async def sync_realization_daily(date_from: date, date_to: date):
 
 async def sync_buyout_percent():
     """Fetch 28-day buyout % from Sales Funnel API v3 and update products table."""
-    import aiohttp
     from datetime import date, timedelta
 
     token = wb_client.token
@@ -994,10 +1000,12 @@ async def sync_buyout_percent():
     url = "https://seller-analytics-api.wildberries.ru/api/analytics/v3/sales-funnel/products"
     headers = {"Authorization": token, "Content-Type": "application/json"}
 
+    proxy = os.getenv("SOCKS5_PROXY", "")
+
     all_products = []
     page = 1
 
-    async with aiohttp.ClientSession() as session:
+    async with httpx.AsyncClient(headers=headers, proxy=proxy or None, timeout=60) as client:
         while True:
             body = {
                 "selectedPeriod": {
@@ -1008,27 +1016,26 @@ async def sync_buyout_percent():
                 "limit": 100
             }
             try:
-                async with session.post(url, headers=headers, json=body) as resp:
-                    if resp.status != 200:
-                        txt = await resp.text()
-                        print(f"Buyout API error page {page}: {resp.status} {txt[:200]}")
-                        break
-                    data = await resp.json()
-                    products = []
-                    if "data" in data:
-                        d = data["data"]
-                        if isinstance(d, dict):
-                            products = d.get("products", [])
-                        elif isinstance(d, list):
-                            products = d
-                    if not products:
-                        break
-                    all_products.extend(products)
-                    print(f"Buyout page {page}: {len(products)} products")
-                    if len(products) < 100:
-                        break
-                    page += 1
-                    await asyncio.sleep(0.5)
+                resp = await client.post(url, json=body)
+                if resp.status_code != 200:
+                    print(f"Buyout API error page {page}: {resp.status_code} {resp.text[:200]}")
+                    break
+                data = resp.json()
+                products = []
+                if "data" in data:
+                    d = data["data"]
+                    if isinstance(d, dict):
+                        products = d.get("products", [])
+                    elif isinstance(d, list):
+                        products = d
+                if not products:
+                    break
+                all_products.extend(products)
+                print(f"Buyout page {page}: {len(products)} products")
+                if len(products) < 100:
+                    break
+                page += 1
+                await asyncio.sleep(0.5)
             except Exception as e:
                 print(f"Buyout fetch error page {page}: {e}")
                 break

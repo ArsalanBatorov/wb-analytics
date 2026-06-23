@@ -33,7 +33,7 @@ async def _period_data(db: AsyncSession, dfrom: date, dto: date) -> dict:
             COALESCE(SUM(sales_revenue), 0) AS sales_revenue,
             COALESCE(SUM(returns_count), 0) AS returns_count,
             COALESCE(SUM(returns_revenue), 0) AS returns_revenue,
-            COALESCE(SUM(logistics_cost + rebill_logistics_cost), 0) AS logistics,
+            COALESCE(SUM(logistics_cost), 0) AS logistics,
             COALESCE(SUM(storage_cost), 0) AS storage,
             COALESCE(SUM(acceptance_cost), 0) AS acceptance,
             COALESCE(SUM(deduction_cost), 0) AS deduction,
@@ -95,8 +95,8 @@ async def _period_data(db: AsyncSession, dfrom: date, dto: date) -> dict:
 
 
 def _calc_metrics(d: dict, tax_rate: float, prev: Optional[dict] = None, period_days: int = 7) -> dict:
-    sales_rev = d["sales_revenue"]
-    sales_cnt = d["sales_count"]
+    sales_rev = d["sales_revenue"] - d["returns_revenue"]
+    sales_cnt = d["sales_count"] - d["returns_count"]
     ret_cnt = d["returns_count"]
     net_payout = d["net_payout"]
     cogs = d["cogs"]
@@ -109,7 +109,7 @@ def _calc_metrics(d: dict, tax_rate: float, prev: Optional[dict] = None, period_
     margin_pct = (margin / sales_rev * 100) if sales_rev > 0 else 0.0
     drr = (ad_spend / sales_rev * 100) if sales_rev > 0 else 0.0
     drr_orders = (ad_spend / order_sum * 100) if order_sum > 0 else 0.0
-    buyout_rate = (sales_cnt / (sales_cnt + ret_cnt) * 100) if (sales_cnt + ret_cnt) > 0 else 0.0
+    buyout_rate = (d["sales_count"] / d["order_count"] * 100) if d["order_count"] > 0 else 0.0
     tax_est = max(0, margin) * tax_rate / 100.0
     avg_sale_price = (sales_rev / sales_cnt) if sales_cnt > 0 else 0.0
     avg_logistics_per_item = (d["logistics"] / sales_cnt) if sales_cnt > 0 else 0.0

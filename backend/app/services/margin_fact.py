@@ -129,7 +129,7 @@ async def calc_margin_for_day(
             "payout_sales":    round(_f(r["payout_sales"]),      2),
             "payout_returns": round(_f(r["payout_returns"]),    2),
             # Удержания WB
-            "logistics":       round(_f(r["logistics_cost"]) + _f(r["rebill_logistics_cost"]), 2),
+            "logistics":       round(_f(r["logistics_cost"]), 2),
             "storage":         round(_f(r["storage_cost"]),      2),
             "acceptance":      round(_f(r["acceptance_cost"]),   2),
             "deduction":       round(_f(r["deduction_cost"]),    2),  # Корректировка ВВ
@@ -183,7 +183,7 @@ async def calc_margin_summary(
             SUM(rds.sales_revenue)                           AS sales_revenue,
             SUM(rds.returns_revenue)                         AS returns_revenue,
             SUM(rds.payout_sales - rds.payout_returns)       AS to_pay,
-            SUM(rds.logistics_cost + rds.rebill_logistics_cost) AS logistics,
+            SUM(rds.logistics_cost) AS logistics,
             SUM(rds.storage_cost)                            AS storage,
             SUM(rds.deduction_cost)                          AS deduction,
             SUM(rds.penalty_cost)                            AS penalty,
