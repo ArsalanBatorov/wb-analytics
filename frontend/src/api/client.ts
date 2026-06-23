@@ -240,6 +240,30 @@ export const updateMonthlyPlan = (data: {
   api.put<MonthlyPlan>(`/plans/`, data).then(r => r.data);
 
 // ============================================================
+// Truestat dashboard (like TrueStats «Оцифровка»)
+// ============================================================
+export interface TruestatMetricValue {
+  value?: number;
+  value_pct?: number;
+  value_count?: number;
+}
+
+export interface TruestatDashboard {
+  period: { date_from: string; date_to: string; days: number };
+  prev_period: { date_from: string; date_to: string; days: number };
+  metrics: Record<string, TruestatMetricValue> & {
+    _delta_abs: Record<string, number>;
+    _delta_pct: Record<string, number>;
+    _prev: Record<string, TruestatMetricValue>;
+  };
+}
+
+export const fetchTruestatDashboard = (p: Period) =>
+  api.get<TruestatDashboard>(
+    `/truestat/dashboard?date_from=${p.date_from}&date_to=${p.date_to}`
+  ).then(r => r.data);
+
+// ============================================================
 // Locator API
 // ============================================================
 
@@ -294,4 +318,31 @@ export async function fetchLocatorAlerts() {
   const r = await fetch(LOCATOR_BASE + '/alerts');
   if (!r.ok) throw new Error('Locator alerts failed');
   return r.json();
+}
+
+export async function importLocatorGeo(file: File, dateFrom?: string, dateTo?: string) {
+    const formData = new FormData();
+    formData.append('file', file);
+    let url = '/api/locator/import-geo';
+    const params = new URLSearchParams();
+    if (dateFrom) params.set('date_from', dateFrom);
+    if (dateTo) params.set('date_to', dateTo);
+    if (params.toString()) url += '?' + params.toString();
+    const r = await fetch(url, {
+        method: 'POST',
+        body: formData,
+    });
+    if (!r.ok) throw new Error('Import geo failed');
+    return r.json();
+}
+
+export async function importLocatorStocks(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const r = await fetch('/api/locator/import-stocks', {
+        method: 'POST',
+        body: formData,
+    });
+    if (!r.ok) throw new Error('Import stocks failed');
+    return r.json();
 }

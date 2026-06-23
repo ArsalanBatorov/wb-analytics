@@ -1,40 +1,118 @@
-/**
- * Страница «План/Факт» — фактическая маржа кассовым методом.
- *
- * Источник: GET /margin/{summary,daily,products}.
- * Поля выручки на бэкенде называются sales_revenue (не revenue) — учитываем.
- * Поля артикула и названия: vendor_code, title (из join с таблицей products).
- */
 import { useEffect, useState, useMemo } from "react";
 import {
-  Card, Row, Col, DatePicker, Radio, Table, Spin, Statistic, Typography, Space,
+  Card, Row, Col, DatePicker, Radio, Spin, Typography, Space, Tag,
 } from "antd";
 import {
-  ResponsiveContainer, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
-} from "recharts";
+  CaretUpOutlined, CaretDownOutlined, MinusOutlined,
+} from "@ant-design/icons";
 import dayjs, { Dayjs } from "dayjs";
-import {
-  fetchMarginSummary, fetchMarginDaily, fetchMarginProducts,
-} from "../api/client";
+import { fetchTruestatDashboard, TruestatDashboard } from "../api/client";
 
 const { RangePicker } = DatePicker;
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
-// --- утилиты форматирования ---
-const fmt   = (n: number) => (n ?? 0).toLocaleString("ru-RU", { maximumFractionDigits: 0 });
-const fmtR  = (n: number) => fmt(n) + " ₽";
-const fmtP  = (n: number) => (n ?? 0).toFixed(1) + " %";
+const fmt = (n: number) => (n ?? 0).toLocaleString("ru-RU", { maximumFractionDigits: 0 });
+const fmtM = (n: number) => fmt(n) + " ₽";
+const fmtP = (n: number) => (n ?? 0).toFixed(2) + "%";
+const fmtP1 = (n: number) => (n ?? 0).toFixed(1) + "%";
+
+interface MetricDef {
+  key: string;
+  title: string;
+  subtitle?: string;
+  format: "money" | "money_pct" | "pct" | "money_count" | "days" | "money_pct_revenue";
+  good_when: "up" | "down";
+}
+
+const METRICS: MetricDef[] = [
+  { key: "margin", title: "Прибыль", subtitle: "Марж. без опер. расх.", format: "money_pct", good_when: "up" },
+  { key: "orders", title: "Заказы", format: "money_count", good_when: "up" },
+  { key: "sales", title: "Продажи", format: "money_count", good_when: "up" },
+  { key: "ad_spend", title: "Реклама / ДРР", format: "money_pct", good_when: "down" },
+  { key: "net_margin", title: "Чистая прибыль", subtitle: "Марж-сть", format: "money_pct", good_when: "up" },
+  { key: "logistics", title: "Логистика", format: "money_pct_revenue", good_when: "down" },
+  { key: "buyout_rate", title: "Процент выкупа", format: "pct", good_when: "up" },
+  { key: "realization", title: "Реализация", format: "money", good_when: "up" },
+  { key: "storage", title: "Хранение", format: "money_pct_revenue", good_when: "down" },
+  { key: "acceptance", title: "Плат. приёмка", format: "money_pct_revenue", good_when: "down" },
+  { key: "deduction", title: "Прочие удержания", format: "money_pct_revenue", good_when: "down" },
+  { key: "roi", title: "ROI", format: "pct", good_when: "up" },
+  { key: "cogs", title: "Себестоимость продаж", format: "money_pct_revenue", good_when: "down" },
+  { key: "operational_expenses", title: "Операционные расходы", format: "money_pct_revenue", good_when: "down" },
+  { key: "taxes", title: "Налоги", format: "money_pct_revenue", good_when: "down" },
+  { key: "commission", title: "Комиссия", format: "money_pct_revenue", good_when: "down" },
+  { key: "avg_price_before_discount", title: "Сред. цена до скидок МП", format: "money", good_when: "up" },
+  { key: "capitalization_cogs", title: "Капитализация по себес.", format: "money", good_when: "up" },
+  { key: "capitalization_retail", title: "Капитализация по розн.", format: "money", good_when: "up" },
+  { key: "penalty", title: "Штрафы", format: "money_pct_revenue", good_when: "down" },
+  { key: "compensation", title: "Компенсации", format: "money_pct_revenue", good_when: "up" },
+  { key: "avg_sale_price", title: "Сред. цена продажи", format: "money", good_when: "up" },
+  { key: "drr_orders", title: "Реклама/ДРРз", format: "money_pct", good_when: "down" },
+  { key: "avg_logistics_per_item", title: "Ср. стоимость логистики на 1 шт", format: "money", good_when: "down" },
+  { key: "turnover_days_sales", title: "Оборачиваемость по прод.", format: "days", good_when: "down" },
+  { key: "turnover_days_orders", title: "Оборачиваемость по зак.", format: "days", good_when: "down" },
+];
+
+function MetricValue({ m, v }: { m: MetricDef; v: any }) {
+  switch (m.format) {
+    case "money_pct":
+      return (
+        <div style={{ lineHeight: 1.3 }}>
+          <div style={{ fontSize: 20, fontWeight: 600 }}>{fmtM(v?.value ?? 0)}</div>
+          <Text type="secondary" style={{ fontSize: 13 }}>/ {fmtP(v?.value_pct ?? 0)}</Text>
+        </div>
+      );
+    case "money_pct_revenue":
+      return (
+        <div style={{ lineHeight: 1.3 }}>
+          <div style={{ fontSize: 20, fontWeight: 600 }}>{fmtM(v?.value ?? 0)}</div>
+          <Text type="secondary" style={{ fontSize: 13 }}>/ {fmtP(v?.value_pct ?? 0)}</Text>
+        </div>
+      );
+    case "money_count":
+      return (
+        <div style={{ lineHeight: 1.3 }}>
+          <div style={{ fontSize: 20, fontWeight: 600 }}>{fmtM(v?.value ?? 0)}</div>
+          <Text type="secondary" style={{ fontSize: 13 }}>/ {fmt(v?.value_count ?? 0)} шт</Text>
+        </div>
+      );
+    case "money":
+      return <div style={{ fontSize: 20, fontWeight: 600 }}>{fmtM(v?.value ?? 0)}</div>;
+    case "pct":
+      return <div style={{ fontSize: 20, fontWeight: 600 }}>{fmtP1(v?.value_pct ?? 0)}</div>;
+    case "days":
+      return <div style={{ fontSize: 20, fontWeight: 600 }}>{fmt(v?.value ?? 0)} дн</div>;
+    default:
+      return <div style={{ fontSize: 20, fontWeight: 600 }}>{v?.value ?? 0}</div>;
+  }
+}
+
+function DeltaDisplay({ deltaAbs, deltaPct, goodWhen }: { deltaAbs: number; deltaPct: number; goodWhen: "up" | "down" }) {
+  if (Math.abs(deltaAbs) < 0.01) {
+    return <MinusOutlined style={{ color: "#999", fontSize: 12 }} />;
+  }
+  const isUp = deltaAbs > 0;
+  const isGood = (isUp && goodWhen === "up") || (!isUp && goodWhen === "down");
+  const color = isGood ? "#52c41a" : "#ff4d4f";
+  return (
+    <span style={{ color, fontSize: 13, whiteSpace: "nowrap" }}>
+      {isUp ? <CaretUpOutlined /> : <CaretDownOutlined />}
+      {" "}{fmt(Math.abs(deltaAbs))} ({deltaPct >= 0 ? "+" : ""}{fmtP1(deltaPct)})
+    </span>
+  );
+}
 
 export default function Margin() {
-  // preset: 1 = вчера, 7/14/30 = последние N дней, "month" = текущий месяц, "custom" = свой
-  const [preset, setPreset] = useState<number | "month" | "custom">(30);
+  const [preset, setPreset] = useState<number | "month" | "custom">(7);
   const [range, setRange] = useState<[Dayjs, Dayjs]>([
-    dayjs().subtract(29, "day"), dayjs(),
+    dayjs().subtract(6, "day"), dayjs(),
   ]);
+  const [data, setData] = useState<TruestatDashboard | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const [dateFrom, dateTo] = useMemo(() => {
     if (preset === "custom") return [range[0].format("YYYY-MM-DD"), range[1].format("YYYY-MM-DD")];
-    if (preset === "month")  return [dayjs().startOf("month").format("YYYY-MM-DD"), dayjs().format("YYYY-MM-DD")];
+    if (preset === "month") return [dayjs().startOf("month").format("YYYY-MM-DD"), dayjs().format("YYYY-MM-DD")];
     if (preset === 1) {
       const y = dayjs().subtract(1, "day").format("YYYY-MM-DD");
       return [y, y];
@@ -43,86 +121,29 @@ export default function Margin() {
             dayjs().format("YYYY-MM-DD")];
   }, [preset, range]);
 
-  const [summary, setSummary]   = useState<any>(null);
-  const [daily, setDaily]       = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [loading, setLoading]   = useState(false);
-
   useEffect(() => {
     setLoading(true);
-    Promise.all([
-      fetchMarginSummary({ date_from: dateFrom, date_to: dateTo }),
-      fetchMarginDaily({ date_from: dateFrom, date_to: dateTo }),
-      fetchMarginProducts({ date_from: dateFrom, date_to: dateTo }),
-    ])
-      .then(([s, d, p]: any[]) => {
-        // /summary возвращает { summary: {...} } — разворачиваем
-        setSummary(s?.summary ?? s);
-        // /daily возвращает { rows: [...] } или { items: [...] }
-        setDaily(d?.rows ?? d?.items ?? d ?? []);
-        // /products возвращает { products: [...] }
-        setProducts(p?.products ?? p?.items ?? (Array.isArray(p) ? p : []));
-      })
+    fetchTruestatDashboard({ date_from: dateFrom, date_to: dateTo })
+      .then(setData)
       .finally(() => setLoading(false));
   }, [dateFrom, dateTo]);
 
-  const chartData = useMemo(() => {
-    return (daily ?? []).map((d: any) => ({
-      date: dayjs(d.date ?? d.stat_date).format("MM-DD"),
-      margin: Number(d.margin ?? 0),
-    }));
-  }, [daily]);
+  const m = data?.metrics;
+  const deltaAbs = m?._delta_abs ?? {};
+  const deltaPct = m?._delta_pct ?? {};
+  const prev = m?._prev ?? {};
 
-  const columns = [
-    {
-      title: "Артикул продавца",
-      dataIndex: "vendor_code",
-      key: "vendor_code",
-      width: 200,
-      fixed: "left" as const,
-      render: (v: string, row: any) => row.nm_id === 0 ? <span style={{color:"#888",fontStyle:"italic"}}>Общие удержания WB</span> : (v || "—"),
-    },
-    {
-      title: "nm_id",
-      dataIndex: "nm_id",
-      key: "nm_id",
-      width: 110,
-      render: (v: number) => v
-        ? <a href={`https://www.wildberries.ru/catalog/${v}/detail.aspx`} target="_blank" rel="noreferrer">{v}</a>
-        : <span style={{ color: "#999" }}>общие</span>,
-    },
-    { title: "Название", dataIndex: "title", key: "title", ellipsis: true, width: 240,
-      render: (v: string) => v || "—" },
-    { title: "Продажи", dataIndex: "sales_count", align: "right" as const, width: 90,
-      render: (v: number) => fmt(v),
-      sorter: (a: any, b: any) => (a.sales_count ?? 0) - (b.sales_count ?? 0) },
-    { title: "Возвраты", dataIndex: "returns_count", align: "right" as const, width: 90,
-      render: (v: number) => fmt(v),
-      sorter: (a: any, b: any) => (a.returns_count ?? 0) - (b.returns_count ?? 0) },
-    { title: "Выручка", dataIndex: "sales_revenue", align: "right" as const, width: 120,
-      render: (v: number) => fmtR(v),
-      sorter: (a: any, b: any) => (a.sales_revenue ?? 0) - (b.sales_revenue ?? 0) },
-    { title: "Себестоимость", dataIndex: "cogs", align: "right" as const, width: 130,
-      render: (v: number) => fmtR(v),
-      sorter: (a: any, b: any) => (a.cogs ?? 0) - (b.cogs ?? 0) },
-    { title: "Логистика", dataIndex: "logistics", align: "right" as const, width: 110,
-      render: (v: number) => fmtR(v),
-      sorter: (a: any, b: any) => (a.logistics ?? 0) - (b.logistics ?? 0) },
-    { title: "Реклама", dataIndex: "ad_spend", align: "right" as const, width: 110,
-      render: (v: number) => fmtR(v),
-      sorter: (a: any, b: any) => (a.ad_spend ?? 0) - (b.ad_spend ?? 0) },
-    { title: "Маржа ₽", dataIndex: "margin", align: "right" as const, width: 120,
-      render: (v: number) => <span style={{ color: v >= 0 ? "#52c41a" : "#ff4d4f" }}>{fmtR(v)}</span>,
-      sorter: (a: any, b: any) => (a.margin ?? 0) - (b.margin ?? 0),
-      defaultSortOrder: "ascend" as const },
-    { title: "Маржа %", dataIndex: "margin_pct", align: "right" as const, width: 100,
-      render: (v: number) => <span style={{ color: v >= 0 ? "#52c41a" : "#ff4d4f" }}>{fmtP(v)}</span>,
-      sorter: (a: any, b: any) => (a.margin_pct ?? 0) - (b.margin_pct ?? 0) },
-  ];
+  const rows = useMemo(() => {
+    const r: MetricDef[][] = [];
+    for (let i = 0; i < METRICS.length; i += 5) {
+      r.push(METRICS.slice(i, i + 5));
+    }
+    return r;
+  }, []);
 
   return (
     <div style={{ padding: 16 }}>
-      <Title level={3} style={{ marginTop: 0 }}>План/Факт</Title>
+      <Title level={3} style={{ marginTop: 0 }}>Фин. отчёт</Title>
 
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space wrap>
@@ -138,86 +159,62 @@ export default function Margin() {
             <RangePicker value={range} onChange={(v) => v && setRange(v as [Dayjs, Dayjs])} />
           )}
           <span style={{ color: "#888" }}>{dateFrom} — {dateTo}</span>
+          {data && (
+            <Tag>{data.prev_period.date_from} — {data.prev_period.date_to}</Tag>
+          )}
         </Space>
       </Card>
 
       <Spin spinning={loading}>
-        {summary && (
-          <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-            <Col xs={12} md={6} lg={4}>
-              <Card><Statistic title="Выручка" value={summary.sales_revenue ?? 0}
-                formatter={(v) => fmtR(Number(v))} /></Card>
-            </Col>
-            <Col xs={12} md={6} lg={4}>
-              <Card><Statistic title="Маржа" value={summary.margin ?? 0}
-                formatter={(v) => fmtR(Number(v))}
-                valueStyle={{ color: (summary.margin ?? 0) >= 0 ? "#52c41a" : "#ff4d4f" }} /></Card>
-            </Col>
-            <Col xs={12} md={6} lg={4}>
-              <Card><Statistic title="Маржа %" value={summary.margin_pct ?? 0}
-                suffix="%" precision={1}
-                valueStyle={{ color: (summary.margin_pct ?? 0) >= 0 ? "#52c41a" : "#ff4d4f" }} /></Card>
-            </Col>
-            <Col xs={12} md={6} lg={4}>
-              <Card><Statistic title="Себестоимость" value={summary.cogs ?? 0}
-                formatter={(v) => fmtR(Number(v))} /></Card>
-            </Col>
-            <Col xs={12} md={6} lg={4}>
-              <Card><Statistic title="Логистика" value={summary.logistics ?? 0}
-                formatter={(v) => fmtR(Number(v))} /></Card>
-            </Col>
-            <Col xs={12} md={6} lg={4}>
-              <Card><Statistic title="Реклама" value={summary.ad_spend ?? 0}
-                formatter={(v) => fmtR(Number(v))} /></Card>
-            </Col>
-            <Col xs={12} md={6} lg={4}>
-              <Card><Statistic title="К перечислению" value={summary.net_payout ?? 0}
-                formatter={(v) => fmtR(Number(v))} /></Card>
-            </Col>
-            <Col xs={12} md={6} lg={4}>
-              <Card><Statistic title="Хранение" value={summary.storage ?? 0}
-                formatter={(v) => fmtR(Number(v))} /></Card>
-            </Col>
-            <Col xs={12} md={6} lg={4}>
-              <Card><Statistic title="Корр. ВВ" value={summary.deduction ?? 0}
-                formatter={(v) => fmtR(Number(v))} /></Card>
-            </Col>
-            <Col xs={12} md={6} lg={4}>
-              <Card><Statistic title="Возвраты" value={summary.returns_count ?? 0}
-                suffix="шт" /></Card>
-            </Col>
+        {rows.map((row, ri) => (
+          <Row gutter={[8, 8]} key={ri} style={{ marginBottom: 8 }}>
+            {row.map((metric) => {
+              const cv = m?.[metric.key];
+              const da = deltaAbs[metric.key];
+              const dp = deltaPct[metric.key];
+              const isGood = da !== undefined && (
+                (da > 0 && metric.good_when === "up") ||
+                (da < 0 && metric.good_when === "down") ||
+                Math.abs(da) < 0.01
+              );
+              const bgColor = da === undefined ? "#fff"
+                : Math.abs(da) < 0.01 ? "#fafafa"
+                : isGood ? "#f6ffed" : "#fff2f0";
+              const borderColor = da === undefined ? "#f0f0f0"
+                : Math.abs(da) < 0.01 ? "#f0f0f0"
+                : isGood ? "#b7eb8f" : "#ffccc7";
+
+              return (
+                <Col xs={24} sm={12} md={8} lg={4} key={metric.key}>
+                  <Card
+                    size="small"
+                    style={{
+                      background: bgColor,
+                      borderLeft: `3px solid ${borderColor}`,
+                      height: "100%",
+                    }}
+                    styles={{ body: { padding: "8px 12px" } }}
+                  >
+                    <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
+                      {metric.title}
+                      {metric.subtitle && (
+                        <Text type="secondary" style={{ fontSize: 11, display: "block" }}>
+                          {metric.subtitle}
+                        </Text>
+                      )}
+                    </div>
+                    <MetricValue m={metric} v={cv} />
+                    {da !== undefined && (
+                      <div style={{ marginTop: 4 }}>
+                        <DeltaDisplay deltaAbs={da} deltaPct={dp} goodWhen={metric.good_when} />
+                      </div>
+                    )}
+                  </Card>
+                </Col>
+              );
+            })}
           </Row>
-        )}
-
-        <Card title="Маржа по дням" style={{ marginBottom: 16 }}>
-          {chartData.length > 0 && (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis tickFormatter={(v) => fmt(v)} />
-                <Tooltip formatter={(v: number) => fmtR(v)} />
-                <ReferenceLine y={0} stroke="#000" />
-                <Bar dataKey="margin" name="Маржа ₽">
-                  {chartData.map((entry, i) => (
-                    <Cell key={i} fill={entry.margin >= 0 ? "#52c41a" : "#ff4d4f"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </Card>
-
-        <Card title={`Маржа по SKU (${products.length})`}>
-          <Table
-            rowKey="nm_id"
-            columns={columns as any}
-            dataSource={products}
-            size="small"
-            pagination={{ defaultPageSize: 25, showSizeChanger: true, pageSizeOptions: ['25','50','100','200'] }}
-            scroll={{ x: 1400 }}
-          />
-        </Card>
+        ))}
       </Spin>
     </div>
   );
