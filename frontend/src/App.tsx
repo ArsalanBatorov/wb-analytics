@@ -18,23 +18,23 @@ import 'dayjs/locale/ru';
 const { Sider, Content } = Layout;
 
 const menuItems = [
+  { key: 'margin', icon: <DollarOutlined />, label: 'Фин. отчёт' },
   { key: 'locator', icon: <DashboardOutlined />, label: 'Локатор' },
   { key: 'plan-fact', icon: <BarChartOutlined />, label: 'План/Факт' },
   { key: 'advertising', icon: <RiseOutlined />, label: 'Реклама' },
-  { key: 'margin', icon: <DollarOutlined />, label: 'Фин. отчёт' },
   { key: 'settings', icon: <SettingOutlined />, label: 'Настройки' },
 ];
 
 const components: Record<string, React.FC> = {
+  margin: Margin,
   locator: LocatorDashboard,
   'plan-fact': PlanFact,
   advertising: Advertising,
-  margin: Margin,
   settings: Settings,
 };
 
 const App: React.FC = () => {
-  const [activeKey, setActiveKey] = useState('locator');
+  const [activeKey, setActiveKey] = useState('margin');
   const Component = components[activeKey];
 
   return (
