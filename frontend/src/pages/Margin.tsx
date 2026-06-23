@@ -29,13 +29,11 @@ const METRICS: MetricDef[] = [
   { key: "orders", title: "Заказы", format: "money_count", good_when: "up" },
   { key: "sales", title: "Продажи", format: "money_count", good_when: "up" },
   { key: "ad_spend", title: "Реклама / ДРР", format: "money_pct", good_when: "down" },
-  { key: "net_margin", title: "Чистая прибыль", subtitle: "Марж-сть", format: "money_pct", good_when: "up" },
   { key: "logistics", title: "Логистика", format: "money_pct_revenue", good_when: "down" },
   { key: "buyout_rate", title: "Процент выкупа", format: "pct", good_when: "up" },
-  { key: "realization", title: "Реализация", format: "money", good_when: "up" },
   { key: "storage", title: "Хранение", format: "money_pct_revenue", good_when: "down" },
   { key: "acceptance", title: "Плат. приёмка", format: "money_pct_revenue", good_when: "down" },
-  { key: "deduction", title: "Прочие удержания", format: "money_pct_revenue", good_when: "down" },
+  { key: "deduction", title: "WB Продвижение", format: "money_pct_revenue", good_when: "down" },
   { key: "roi", title: "ROI", format: "pct", good_when: "up" },
   { key: "cogs", title: "Себестоимость продаж", format: "money_pct_revenue", good_when: "down" },
   { key: "operational_expenses", title: "Операционные расходы", format: "money_pct_revenue", good_when: "down" },
@@ -126,7 +124,7 @@ export default function Margin() {
     fetchTruestatDashboard({ date_from: dateFrom, date_to: dateTo })
       .then(setData)
       .finally(() => setLoading(false));
-  }, [dateFrom, dateTo]);
+  }, [dateFrom, dateTo, preset]);
 
   const m = data?.metrics;
   const deltaAbs = m?._delta_abs ?? {};
