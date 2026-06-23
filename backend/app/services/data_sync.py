@@ -520,57 +520,66 @@ async def sync_daily_stats(days: int = 7, date_from: date | None = None, date_to
                         stock_quantity=stock_qty,
                     )
 
-                stmt = pg_insert(ProductDailyStat).values(
-                    nm_id=nm_id,
-                    date=dt,
-                    open_count=opens,
-                    cart_count=carts,
-                    order_count=orders,
-                    order_sum=order_sum,
-                    buyout_count=buyouts,
-                    buyout_sum=buyout_sum,
-                    buyout_percent=buyout_pct,
-                    cancel_count=cancels,
-                    cancel_sum=cancel_sum,
-                    delivery_cost=metrics.get("delivery_cost", 0),
-                    return_cost=metrics.get("return_cost", 0),
-                    storage_cost=metrics.get("storage_cost", 0),
-                    commission_amount=metrics.get("commission_amount", 0),
-                    commission_pct=metrics.get("commission_pct", 0),
-                    cost_price_total=metrics.get("cost_price_total", 0),
-                    margin_profit=metrics.get("margin_profit", 0),
-                    margin_profit_pct=metrics.get("margin_profit_pct", 0),
-                    margin_clean=metrics.get("margin_clean", 0),
-                    margin_clean_pct=metrics.get("margin_clean_pct", 0),
-                    roi=metrics.get("roi", 0),
-                    profit_per_order=metrics.get("profit_per_order", 0),
-                ).on_conflict_do_update(
-                    constraint="uq_product_daily_stats_nm_date",
-                    set_={
-                        "open_count": opens,
-                        "cart_count": carts,
-                        "order_count": orders,
-                        "order_sum": order_sum,
-                        "buyout_count": buyouts,
-                        "buyout_sum": buyout_sum,
-                        "buyout_percent": buyout_pct,
-                        "cancel_count": cancels,
-                        "cancel_sum": cancel_sum,
-                        "delivery_cost": metrics.get("delivery_cost", 0),
-                        "return_cost": metrics.get("return_cost", 0),
-                        "storage_cost": metrics.get("storage_cost", 0),
-                        "commission_amount": metrics.get("commission_amount", 0),
-                        "commission_pct": metrics.get("commission_pct", 0),
-                        "cost_price_total": metrics.get("cost_price_total", 0),
-                        "margin_profit": metrics.get("margin_profit", 0),
-                        "margin_profit_pct": metrics.get("margin_profit_pct", 0),
-                        "margin_clean": metrics.get("margin_clean", 0),
-                        "margin_clean_pct": metrics.get("margin_clean_pct", 0),
-                        "roi": metrics.get("roi", 0),
-                        "profit_per_order": metrics.get("profit_per_order", 0),
-                    }
-                )
-                await db.execute(stmt)
+                upsert_sql = text("""
+                    INSERT INTO product_daily_stats (
+                        nm_id, date, open_count, cart_count,
+                        order_count, order_sum, buyout_count, buyout_sum, buyout_percent,
+                        cancel_count, cancel_sum,
+                        delivery_cost, return_cost, storage_cost,
+                        commission_amount, commission_pct,
+                        cost_price_total, margin_profit, margin_profit_pct,
+                        margin_clean, margin_clean_pct, roi, profit_per_order
+                    ) VALUES (
+                        :nm_id, :dt, :open_count, :cart_count,
+                        :order_count, :order_sum, :buyout_count, :buyout_sum, :buyout_percent,
+                        :cancel_count, :cancel_sum,
+                        :delivery_cost, :return_cost, :storage_cost,
+                        :commission_amount, :commission_pct,
+                        :cost_price_total, :margin_profit, :margin_profit_pct,
+                        :margin_clean, :margin_clean_pct, :roi, :profit_per_order
+                    )
+                    ON CONFLICT (nm_id, date) DO UPDATE SET
+                        open_count = CASE WHEN EXCLUDED.open_count > 0 THEN EXCLUDED.open_count ELSE product_daily_stats.open_count END,
+                        cart_count = CASE WHEN EXCLUDED.cart_count > 0 THEN EXCLUDED.cart_count ELSE product_daily_stats.cart_count END,
+                        order_count = CASE WHEN EXCLUDED.order_count > 0 THEN EXCLUDED.order_count ELSE product_daily_stats.order_count END,
+                        order_sum = CASE WHEN EXCLUDED.order_sum > 0 THEN EXCLUDED.order_sum ELSE product_daily_stats.order_sum END,
+                        buyout_count = CASE WHEN EXCLUDED.buyout_count > 0 THEN EXCLUDED.buyout_count ELSE product_daily_stats.buyout_count END,
+                        buyout_sum = CASE WHEN EXCLUDED.buyout_sum > 0 THEN EXCLUDED.buyout_sum ELSE product_daily_stats.buyout_sum END,
+                        buyout_percent = CASE WHEN EXCLUDED.buyout_percent > 0 THEN EXCLUDED.buyout_percent ELSE product_daily_stats.buyout_percent END,
+                        cancel_count = CASE WHEN EXCLUDED.cancel_count > 0 THEN EXCLUDED.cancel_count ELSE product_daily_stats.cancel_count END,
+                        cancel_sum = CASE WHEN EXCLUDED.cancel_sum > 0 THEN EXCLUDED.cancel_sum ELSE product_daily_stats.cancel_sum END,
+                        delivery_cost = CASE WHEN EXCLUDED.delivery_cost > 0 THEN EXCLUDED.delivery_cost ELSE product_daily_stats.delivery_cost END,
+                        return_cost = CASE WHEN EXCLUDED.return_cost > 0 THEN EXCLUDED.return_cost ELSE product_daily_stats.return_cost END,
+                        storage_cost = CASE WHEN EXCLUDED.storage_cost > 0 THEN EXCLUDED.storage_cost ELSE product_daily_stats.storage_cost END,
+                        commission_amount = CASE WHEN EXCLUDED.commission_amount > 0 THEN EXCLUDED.commission_amount ELSE product_daily_stats.commission_amount END,
+                        commission_pct = CASE WHEN EXCLUDED.commission_pct > 0 THEN EXCLUDED.commission_pct ELSE product_daily_stats.commission_pct END,
+                        cost_price_total = CASE WHEN EXCLUDED.cost_price_total > 0 THEN EXCLUDED.cost_price_total ELSE product_daily_stats.cost_price_total END,
+                        margin_profit = CASE WHEN EXCLUDED.margin_profit > 0 THEN EXCLUDED.margin_profit ELSE product_daily_stats.margin_profit END,
+                        margin_profit_pct = CASE WHEN EXCLUDED.margin_profit_pct > 0 THEN EXCLUDED.margin_profit_pct ELSE product_daily_stats.margin_profit_pct END,
+                        margin_clean = CASE WHEN EXCLUDED.margin_clean > 0 THEN EXCLUDED.margin_clean ELSE product_daily_stats.margin_clean END,
+                        margin_clean_pct = CASE WHEN EXCLUDED.margin_clean_pct > 0 THEN EXCLUDED.margin_clean_pct ELSE product_daily_stats.margin_clean_pct END,
+                        roi = CASE WHEN EXCLUDED.roi > 0 THEN EXCLUDED.roi ELSE product_daily_stats.roi END,
+                        profit_per_order = CASE WHEN EXCLUDED.profit_per_order > 0 THEN EXCLUDED.profit_per_order ELSE product_daily_stats.profit_per_order END
+                """)
+                await db.execute(upsert_sql, {
+                    "nm_id": nm_id, "dt": dt,
+                    "open_count": opens, "cart_count": carts,
+                    "order_count": orders, "order_sum": order_sum,
+                    "buyout_count": buyouts, "buyout_sum": buyout_sum, "buyout_percent": buyout_pct,
+                    "cancel_count": cancels, "cancel_sum": cancel_sum,
+                    "delivery_cost": metrics.get("delivery_cost", 0),
+                    "return_cost": metrics.get("return_cost", 0),
+                    "storage_cost": metrics.get("storage_cost", 0),
+                    "commission_amount": metrics.get("commission_amount", 0),
+                    "commission_pct": metrics.get("commission_pct", 0),
+                    "cost_price_total": metrics.get("cost_price_total", 0),
+                    "margin_profit": metrics.get("margin_profit", 0),
+                    "margin_profit_pct": metrics.get("margin_profit_pct", 0),
+                    "margin_clean": metrics.get("margin_clean", 0),
+                    "margin_clean_pct": metrics.get("margin_clean_pct", 0),
+                    "roi": metrics.get("roi", 0),
+                    "profit_per_order": metrics.get("profit_per_order", 0),
+                })
                 count += 1
 
         await db.commit()
