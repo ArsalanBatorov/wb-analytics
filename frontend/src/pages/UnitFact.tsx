@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
-  Table, Card, Tag, Space, Typography, Radio, DatePicker,
+  Table, Space, Typography, Radio, DatePicker,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
@@ -53,7 +53,7 @@ const fmtPct = (v: number | null | undefined): string => {
 
 const fmtMoney = (v: number | null | undefined): string => {
   if (v == null || v === 0) return "-";
-  return fmt(v) + " \u20BD";
+  return fmt(v) + " ₽";
 };
 
 const columns: ColumnsType<UnitFactRow> = [
@@ -97,6 +97,9 @@ const PERIOD_OPTIONS = [
   { key: "custom" as PeriodKey, label: "Свой" },
 ];
 
+const STORAGE_PERIOD_KEY = "unit_fact_period_key";
+const STORAGE_RANGE_KEY = "unit_fact_custom_range";
+
 function getPeriodDates(key: PeriodKey): { date_from: string; date_to: string } {
   const today = dayjs();
   switch (key) {
@@ -112,11 +115,113 @@ function getPeriodDates(key: PeriodKey): { date_from: string; date_to: string } 
   }
 }
 
+const totalColWidth = columns.reduce((s, c) => s + ((c.width as number) || 80), 0);
+
+const summaryCellStyle: React.CSSProperties = {
+  padding: "4px 8px",
+  boxSizing: "border-box",
+  fontSize: 12,
+  fontWeight: 700,
+  lineHeight: "22px",
+  borderBottom: "1px solid #d9d9d9",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+function buildSummary(data: UnitFactRow[], dateFrom: string, dateTo: string) {
+  const total = (fn: (r: UnitFactRow) => number) => data.reduce((s, r) => s + fn(r), 0);
+  const R = (v: number) => Math.round(v * 10000) / 10000;
+
+  const sl = total(r => r.sales_count);
+  const rt = total(r => r.returns_count);
+  const ns = total(r => r.net_sales);
+  const rev = total(r => r.revenue);
+  const cp = total(r => r.cost_price_total);
+  const comm = total(r => r.commission);
+  const lg = total(r => r.logistics_total);
+  const ld = total(r => r.logistics_direct);
+  const lr = total(r => r.logistics_return);
+  const ap = total(r => r.acquiring_penalty);
+  const ad = total(r => r.ad_spend);
+  const sw = total(r => r.stock_wb);
+  const si = total(r => r.stock_in_transit);
+  const profit = total(r => r.margin_per_unit * r.net_sales);
+
+  let days = 30;
+  if (dateFrom && dateTo) {
+    days = Math.max(dayjs(dateTo).diff(dayjs(dateFrom), "day"), 1);
+  }
+  const weeks = Math.max(days / 7, 1);
+  const avgSalesPerWeek = R(ns / weeks);
+
+  return {
+    vendor_code: "ИТОГО",
+    sales_count: sl,
+    returns_count: rt,
+    returns_pct: sl > 0 ? R(rt / sl) : 0,
+    net_sales: ns,
+    revenue: R(rev),
+    revenue_per_unit: ns > 0 ? R(rev / ns) : 0,
+    cost_price_total: R(cp),
+    cost_price_per_unit: ns > 0 ? R(cp / ns) : 0,
+    cost_price_pct: rev > 0 ? R(cp / rev) : 0,
+    commission: R(comm),
+    commission_pct: rev > 0 ? R(comm / rev) : 0,
+    logistics_total: R(lg),
+    logistics_per_unit: ns > 0 ? R(lg / ns) : 0,
+    logistics_pct: rev > 0 ? R(lg / rev) : 0,
+    logistics_direct: R(ld),
+    logistics_direct_pct: rev > 0 ? R(ld / rev) : 0,
+    logistics_return: R(lr),
+    logistics_return_pct: rev > 0 ? R(lr / rev) : 0,
+    acquiring_penalty: R(ap),
+    ad_spend: R(ad),
+    ad_spend_per_unit: ns > 0 ? R(ad / ns) : 0,
+    margin_per_unit: ns > 0 ? R(profit / ns) : 0,
+    margin_pct: rev > 0 ? R(profit / rev) : 0,
+    roi: (cp + ad + lg + comm + ap) > 0 ? R(profit / (cp + ad + lg + comm + ap)) : 0,
+    stock_wb: sw,
+    stock_in_transit: si,
+    stock_days: avgSalesPerWeek > 0 ? R(sw / avgSalesPerWeek * 7) : 0,
+    avg_sales_per_week: avgSalesPerWeek,
+    turnover_days: ns > 0 && days > 0 ? R(sw / (ns / days)) : 0,
+  };
+}
+
+function renderSummaryCell(col: (typeof columns)[number], summary: ReturnType<typeof buildSummary>): string | React.ReactNode {
+  const render = col.render || ((v: any) => v);
+  const val = summary[col.dataIndex as keyof typeof summary];
+  return render(val, summary as any, 0);
+}
+
 const UnitFact: React.FC = () => {
   const [data, setData] = useState<UnitFactRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [periodKey, setPeriodKey] = useState<PeriodKey>("30d");
-  const [customRange, setCustomRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+  const [periodKey, setPeriodKey] = useState<PeriodKey>(() => {
+    const saved = sessionStorage.getItem(STORAGE_PERIOD_KEY);
+    return (saved as PeriodKey) || "30d";
+  });
+  const [customRange, setCustomRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(() => {
+    const saved = sessionStorage.getItem(STORAGE_RANGE_KEY);
+    if (saved) {
+      try {
+        const [a, b] = JSON.parse(saved);
+        return [dayjs(a), dayjs(b)];
+      } catch { /* ignore */ }
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    sessionStorage.setItem(STORAGE_PERIOD_KEY, periodKey);
+  }, [periodKey]);
+
+  useEffect(() => {
+    if (customRange) {
+      sessionStorage.setItem(STORAGE_RANGE_KEY, JSON.stringify(customRange.map(d => d.format("YYYY-MM-DD"))));
+    }
+  }, [customRange]);
 
   const params = useMemo(() => {
     if (periodKey === "custom" && customRange) {
@@ -148,6 +253,11 @@ const UnitFact: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
+  const summary = useMemo(
+    () => data.length > 0 ? buildSummary(data, params.date_from, params.date_to) : null,
+    [data, params.date_from, params.date_to]
+  );
+
   return (
     <div style={{ padding: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
@@ -176,23 +286,21 @@ const UnitFact: React.FC = () => {
         </Space>
       </div>
 
-      <Card size="small" style={{ marginBottom: 12 }}>
-        <Space wrap>
-          <Tag>Товаров: {data.length}</Tag>
-          {params.date_from && <Tag color="blue">{params.date_from} → {params.date_to}</Tag>}
-          {data.length > 0 && <Tag color="green">Продажи: {data.reduce((s, r) => s + r.sales_count, 0)}</Tag>}
-          {data.length > 0 && <Tag color="orange">Выручка: {data.reduce((s, r) => s + r.revenue, 0).toLocaleString("ru-RU")} ₽</Tag>}
-        </Space>
-      </Card>
-
-      <div style={{ overflowX: "auto" }}>
+      <div style={{ overflowX: "auto", overflowY: "hidden" }}>
+        <div style={{ minWidth: totalColWidth + 20, display: "flex", background: "#fafafa" }}>
+          {columns.map((col) => (
+            <div key={col.key} style={{ ...summaryCellStyle, width: col.width, minWidth: col.width }}>
+              {summary ? renderSummaryCell(col, summary) : "-"}
+            </div>
+          ))}
+        </div>
         <Table
           columns={columns}
           dataSource={data}
           rowKey={(r) => r.vendor_code}
           loading={loading}
           size="small"
-          scroll={{ x: 2800 }}
+          scroll={{ x: totalColWidth + 20 }}
           pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: ["20", "50", "100", "200"] }}
           sticky
         />
