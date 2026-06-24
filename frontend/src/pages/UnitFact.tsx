@@ -76,7 +76,7 @@ const columns: ColumnsType<UnitFactRow> = [
   { title: "Возвратная лог.", dataIndex: "logistics_return", key: "logistics_return", width: 100, render: fmtMoney },
   { title: "Эквайринг+штрафы", dataIndex: "acquiring_penalty", key: "acquiring_penalty", width: 110, render: fmtMoney },
   { title: "Реклама", dataIndex: "ad_spend", key: "ad_spend", width: 90, sorter: (a, b) => a.ad_spend - b.ad_spend, render: fmtMoney },
-  { title: "Маржа на ед.", dataIndex: "margin_per_unit", key: "margin_per_unit", width: 100, sorter: (a, b) => a.margin_per_unit - b.margin_per_unit, render: (v: number) => v < 0 ? <span style={{ color: "#ff4d4f" }}>{fmt(v)} \u20BD</span> : fmt(v) + " \u20BD" },
+  { title: "Маржа на ед.", dataIndex: "margin_per_unit", key: "margin_per_unit", width: 100, sorter: (a, b) => a.margin_per_unit - b.margin_per_unit, render: (v: number) => v < 0 ? <span style={{ color: "#ff4d4f" }}>{fmt(v)} ₽</span> : fmt(v) + " ₽" },
   { title: "Маржа %", dataIndex: "margin_pct", key: "margin_pct", width: 80, sorter: (a, b) => a.margin_pct - b.margin_pct, render: (v: number) => { const s = (v * 100).toFixed(1) + "%"; return v < 0 ? <span style={{ color: "#ff4d4f" }}>{s}</span> : s; } },
   { title: "ROI", dataIndex: "roi", key: "roi", width: 80, sorter: (a, b) => a.roi - b.roi, render: (v: number) => { if (v == null) return "-"; const s = (v * 100).toFixed(1) + "%"; return v < 0 ? <span style={{ color: "#ff4d4f" }}>{s}</span> : <span style={{ color: "#52c41a" }}>{s}</span>; } },
   { title: "Остаток ВБ", dataIndex: "stock_wb", key: "stock_wb", width: 80, render: (v: number) => v > 0 ? v : "-" },
