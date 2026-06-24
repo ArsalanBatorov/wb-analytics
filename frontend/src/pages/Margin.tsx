@@ -98,13 +98,38 @@ function DeltaDisplay({ deltaAbs, deltaPct, goodWhen }: { deltaAbs: number; delt
   );
 }
 
+const STORAGE_PRESET = "margin_period_preset";
+const STORAGE_RANGE = "margin_custom_range";
+
+function restoreRange(): [Dayjs, Dayjs] {
+  try {
+    const saved = sessionStorage.getItem(STORAGE_RANGE);
+    if (saved) {
+      const [a, b] = JSON.parse(saved);
+      return [dayjs(a), dayjs(b)];
+    }
+  } catch { /* ignore */ }
+  return [dayjs().subtract(6, "day"), dayjs()];
+}
+
 export default function Margin() {
-  const [preset, setPreset] = useState<number | "month" | "custom">(7);
-  const [range, setRange] = useState<[Dayjs, Dayjs]>([
-    dayjs().subtract(6, "day"), dayjs(),
-  ]);
+  const [preset, setPreset] = useState<number | "month" | "custom">(() => {
+    const saved = sessionStorage.getItem(STORAGE_PRESET);
+    if (saved === "month" || saved === "custom") return saved;
+    const n = Number(saved);
+    return n > 0 ? n : 7;
+  });
+  const [range, setRange] = useState<[Dayjs, Dayjs]>(restoreRange);
   const [data, setData] = useState<TruestatDashboard | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    sessionStorage.setItem(STORAGE_PRESET, String(preset));
+  }, [preset]);
+
+  useEffect(() => {
+    sessionStorage.setItem(STORAGE_RANGE, JSON.stringify(range.map(d => d.format("YYYY-MM-DD"))));
+  }, [range]);
 
   const [dateFrom, dateTo] = useMemo(() => {
     if (preset === "custom") return [range[0].format("YYYY-MM-DD"), range[1].format("YYYY-MM-DD")];
