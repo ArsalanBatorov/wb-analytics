@@ -158,6 +158,7 @@ def _calc_metrics(d: dict, tax_rate: float, vat_rate: float = 0.0, prev: Optiona
         "avg_logistics_per_item": {"value": round(avg_logistics_per_item, 2)},
         "turnover_days_sales": {"value": round(turnover_sales, 2)},
         "turnover_days_orders": {"value": round(turnover_orders, 2)},
+        "net_payout": {"value": round(net_payout, 2), "value_count": int(sales_cnt)},
     }
 
     if prev:

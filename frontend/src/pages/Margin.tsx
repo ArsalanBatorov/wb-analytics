@@ -47,6 +47,7 @@ const METRICS: MetricDef[] = [
   { key: "avg_logistics_per_item", title: "Ср. стоимость логистики на 1 шт", format: "money", good_when: "down" },
   { key: "turnover_days_sales", title: "Оборачиваемость по прод.", format: "days", good_when: "down" },
   { key: "turnover_days_orders", title: "Оборачиваемость по зак.", format: "days", good_when: "down" },
+  { key: "net_payout", title: "К перечислению", format: "money_count", good_when: "up" },
 ];
 
 function MetricValue({ m, v }: { m: MetricDef; v: any }) {
