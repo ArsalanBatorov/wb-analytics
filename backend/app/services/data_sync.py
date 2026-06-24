@@ -960,7 +960,6 @@ async def sync_realization_daily(date_from: date, date_to: date):
                 item["payout_sales"]
                 - item["payout_returns"]
                 - item["logistics_cost"]
-                - item["rebill_logistics_cost"]
                 - item["storage_cost"]
                 - item["acceptance_cost"]
                 - item["deduction_cost"]
