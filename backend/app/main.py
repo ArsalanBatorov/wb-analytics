@@ -50,6 +50,7 @@ from app.api.locator import router as locator_router
 from app.api.truestat import router as truestat_router
 from app.api.upload_stats import router as upload_router
 from app.api.campaigns import router as campaigns_router
+from app.api.unit_fact import router as unit_fact_router
 
 app.include_router(analytics_router)
 app.include_router(settings_router)
@@ -61,6 +62,7 @@ app.include_router(locator_router)
 app.include_router(truestat_router)
 app.include_router(upload_router)
 app.include_router(campaigns_router)
+app.include_router(unit_fact_router)
 
 
 @app.get("/health")

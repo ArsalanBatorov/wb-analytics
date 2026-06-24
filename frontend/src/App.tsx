@@ -7,18 +7,21 @@ import {
   RiseOutlined,
   DollarOutlined,
   SettingOutlined,
+  FundOutlined,
 } from '@ant-design/icons';
 import LocatorDashboard from './pages/LocatorDashboard';
 import PlanFact from './pages/PlanFact';
 import Advertising from './pages/Advertising';
 import Margin from './pages/Margin';
 import Settings from './pages/Settings';
+import UnitFact from './pages/UnitFact';
 import 'dayjs/locale/ru';
 
 const { Sider, Content } = Layout;
 
 const menuItems = [
   { key: 'margin', icon: <DollarOutlined />, label: 'Фин. отчёт' },
+  { key: 'unit-fact', icon: <FundOutlined />, label: 'ABC, Unit-факт' },
   { key: 'locator', icon: <DashboardOutlined />, label: 'Локатор' },
   { key: 'plan-fact', icon: <BarChartOutlined />, label: 'План/Факт' },
   { key: 'advertising', icon: <RiseOutlined />, label: 'Реклама' },
@@ -27,6 +30,7 @@ const menuItems = [
 
 const components: Record<string, React.FC> = {
   margin: Margin,
+  'unit-fact': UnitFact,
   locator: LocatorDashboard,
   'plan-fact': PlanFact,
   advertising: Advertising,
