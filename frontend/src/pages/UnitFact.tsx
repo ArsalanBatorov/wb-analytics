@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import {
   Table, Card, Button, Upload, message, Tag, Space, Typography,
 } from "antd";
-import { UploadOutlined, ReloadOutlined } from "@ant-design/icons";
+import { UploadOutlined, ReloadOutlined, CloudSyncOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 
 const { Title } = Typography;
@@ -344,6 +344,7 @@ const UnitFact: React.FC = () => {
   const [data, setData] = useState<UnitFactRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -386,11 +387,32 @@ const UnitFact: React.FC = () => {
     return false;
   };
 
+  const handleRefreshFromApi = async () => {
+    setRefreshing(true);
+    try {
+      const r = await fetch("/api/truestat/refresh-unit-fact", { method: "POST" });
+      const result = await r.json();
+      if (result.status === "ok") {
+        message.success(`Рассчитано ${result.imported} товаров`);
+        await fetchData();
+      } else {
+        message.error("Ошибка: " + JSON.stringify(result));
+      }
+    } catch (e: any) {
+      message.error("Ошибка: " + (e?.message ?? e));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <div style={{ padding: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <Title level={4} style={{ margin: 0 }}>ABC, Unit-факт</Title>
         <Space>
+          <Button icon={<CloudSyncOutlined />} onClick={handleRefreshFromApi} loading={refreshing}>
+            Из данных сервера
+          </Button>
           <Upload accept=".xlsx" showUploadList={false} beforeUpload={handleUpload} disabled={uploading}>
             <Button icon={<UploadOutlined />} loading={uploading}>
               Загрузить XLSX
